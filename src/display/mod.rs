@@ -36,17 +36,22 @@ pub fn spi_mode() -> SpiMode {
 pub const WIDTH: usize = 320;
 pub const HEIGHT: usize = 480;
 
-pub struct Display<SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> {
-    tft: Tft<SPI, DC, CS>,
+pub struct Display<SPI: SpiTransfer<u8>, TFT_DC: OutputPin, TFT_CS: OutputPin> {
+    spi: SPI,
+    /// Data/Command Select Pin
+    tft_dc: TFT_DC,
+    /// Chip Select
+    tft_cs: TFT_CS,
 }
 
-impl<SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> Display<SPI, DC, CS> {
-    pub fn new(spi: SPI, dc: DC, cs: CS) -> Self {
-        let mut tft = Tft::new(spi, dc, cs);
-        tft.init();
-        tft.write_command(command::SleepOut);
-        tft.write_command(command::DisplayOn);
-        tft.write_command(command::MemoryAccessControl {
+impl<SPI: SpiTransfer<u8>, TFT_DC: OutputPin, TFT_CS: OutputPin> Display<SPI, TFT_DC, TFT_CS> {
+    pub fn new(spi: SPI, tft_dc: TFT_DC, tft_cs: TFT_CS) -> Self {
+        let mut this = Display { spi, tft_dc, tft_cs };
+
+        this.tft().init();
+        this.tft().write_command(command::SleepOut);
+        this.tft().write_command(command::DisplayOn);
+        this.tft().write_command(command::MemoryAccessControl {
             rgb_to_bgr: true,
             row_addr_order: false,
             col_addr_order: false,
@@ -54,26 +59,31 @@ impl<SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> Display<SPI, DC, CS> {
             vert_refresh_order: false,
             horiz_refresh_order: false,
         });
-        tft.write_command(command::InterfacePixelFormat {
+        this.tft().write_command(command::InterfacePixelFormat {
             cpu_format: command::PixelFormat::Bpp16,
             rgb_format: command::PixelFormat::Bpp16,
         });
-        Display { tft }
+
+        this
     }
 
-    pub fn write_pixels<'a>(&'a mut self) -> Result<TftWriter<'a, SPI, DC, CS>, SPI::Error> {
-        self.tft.write(0x2C)
+    pub fn tft<'a>(&'a mut self) -> Tft<'a, SPI, TFT_DC, TFT_CS> {
+        Tft { display: self }
+    }
+
+    pub fn write_pixels<'a>(&'a mut self) -> Result<TftWriter<'a, SPI, TFT_DC, TFT_CS>, SPI::Error> {
+        self.tft().write(0x2C)
     }
 
     pub fn read_tft_identification(&mut self) -> Result<command::DisplayIdentification, SPI::Error> {
-        self.tft.write_command(command::ReadDisplayIdentification)
+        self.tft().write_command(command::ReadDisplayIdentification)
     }
 
     pub fn set_inversion(&mut self, inverted: bool) -> Result<(), SPI::Error> {
         if inverted {
-            self.tft.write_command(command::InversionOn)
+            self.tft().write_command(command::InversionOn)
         } else {
-            self.tft.write_command(command::InversionOff)
+            self.tft().write_command(command::InversionOff)
         }
     }
 }

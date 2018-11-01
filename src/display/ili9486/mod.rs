@@ -7,43 +7,36 @@ use embedded_hal::{
 
 pub mod command;
 use self::command::*;
+use super::Display;
 
-pub struct Tft<SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> {
-    spi: SPI,
-    /// Data/Command Select Pin
-    dc: DC,
-    /// Chip Select
-    cs: CS,
+pub struct Tft<'a, SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> {
+    pub display: &'a mut Display<SPI, DC, CS>,
 }
 
-impl<SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> Tft<SPI, DC, CS> {
-    pub fn new(spi: SPI, mut dc: DC, mut cs: CS) -> Self {
-        dc.set_low();
-        cs.set_high();
-
-        Tft { spi, dc, cs }
-    }
-
-    pub fn write<'a>(&'a mut self, reg: u8) -> Result<TftWriter<'a, SPI, DC, CS>, SPI::Error> {
-        self.dc.set_low();
-        self.cs.set_low();
+impl<'a, SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> Tft<'a, SPI, DC, CS> {
+    pub fn write(self, reg: u8) -> Result<TftWriter<'a, SPI, DC, CS>, SPI::Error> {
+        let display = self.display;
+        display.tft_dc.set_low();
+        display.tft_cs.set_low();
         let mut buf = [0, reg];
-        let result = self.spi.transfer(&mut buf);
-        self.dc.set_high();
+        let result = display.spi.transfer(&mut buf);
+        display.tft_dc.set_high();
         match result {
-            Ok(_) => Ok(TftWriter { tft: self }),
+            Ok(_) => Ok(TftWriter { display }),
             Err(e) => {
-                self.cs.set_high();
+                display.tft_cs.set_high();
                 return Err(e);
             }
         }
     }
 
-    pub fn write_command<C: Command>(&mut self, c: C) -> Result<C::Response, SPI::Error> {
-        let mut w = self.write(c.number())?;
-        let mut buf = c.encode();
-        w.transfer(buf.as_mut())?;
-        let response = C::decode(&buf);
+    pub fn write_command<C: Command>(self, c: C) -> Result<C::Response, SPI::Error> {
+        let response = {
+            let mut w = self.write(c.number())?;
+            let mut buf = c.encode();
+            w.transfer(buf.as_mut())?;
+            C::decode(&buf)
+        };
         Ok(response)
     }
 
@@ -51,7 +44,7 @@ impl<SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> Tft<SPI, DC, CS> {
     //     self.dc.set_low();
     //     self.cs.set_low();
     //     let mut buf = [0, reg];
-    //     let result = self.spi.transfer(&mut buf);
+    //     let result = self.display.spi.transfer(&mut buf);
     //     self.cs.set_high();
     //     result.map(|_| ())
     // }
@@ -59,7 +52,7 @@ impl<SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> Tft<SPI, DC, CS> {
     // fn write_data(&mut self, buf: &mut [u8]) -> Result<(), SPI::Error> {
     //     self.dc.set_high();
     //     self.cs.set_low();
-    //     let result = self.spi.transfer(buf);
+    //     let result = self.display.spi.transfer(buf);
     //     self.cs.set_high();
     //     result.map(|_| ())
     // }
@@ -71,6 +64,9 @@ impl<SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> Tft<SPI, DC, CS> {
 
     /// TODO: use command::*
     pub fn init(&mut self) {
+        self.display.tft_dc.set_low();
+        self.display.tft_cs.set_high();
+
         // self.write_reg(0xF9);
         // self.write_byte(0x00);
         // self.write_byte(0x08);
@@ -188,18 +184,18 @@ impl<SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> Tft<SPI, DC, CS> {
 }
 
 pub struct TftWriter<'a, SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> {
-    tft: &'a mut Tft<SPI, DC, CS>,
+    display: &'a mut Display<SPI, DC, CS>,
 }
 
 impl<'a, SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> TftWriter<'a, SPI, DC, CS> {
     pub fn transfer(&mut self, buffer: &mut [u8]) -> Result<(), SPI::Error> {
-        self.tft.spi.transfer(buffer)
+        self.display.spi.transfer(buffer)
             .map(|_| ())
     }
 }
 
 impl<'a, SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> Drop for TftWriter<'a, SPI, DC, CS> {
     fn drop(&mut self) {
-        self.tft.cs.set_high();
+        self.display.tft_cs.set_high();
     }
 }
