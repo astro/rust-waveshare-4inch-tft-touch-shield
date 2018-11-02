@@ -9,7 +9,7 @@ extern crate stm32f429_hal;
 extern crate cortex_m_semihosting as sh;
 extern crate embedded_hal;
 
-use core::fmt::Write;
+// use core::fmt::Write;
 use stm32f429_hal::{
     stm32f429,
     rcc::RccExt,
@@ -29,7 +29,7 @@ use display::{Display, WIDTH, HEIGHT};
 
 #[entry]
 fn main() -> ! {
-    let mut hstdout = sh::hio::hstdout().unwrap();
+    // let mut hstdout = sh::hio::hstdout().unwrap();
 
     let mut cp = cortex_m::Peripherals::take().unwrap();
     let dp = stm32f429::Peripherals::take().unwrap();
@@ -77,7 +77,8 @@ fn main() -> ! {
     delay.delay_us(5u16);
 
     lcd_bl.set_high();
-    let mut display = Display::new(spi, lcd_dc, lcd_cs);
+    let mut display = Display::new(spi, lcd_dc, lcd_cs)
+        .expect("display");
 
     let mut t = 0;
     let mut buf = [0u8; 2 * WIDTH];

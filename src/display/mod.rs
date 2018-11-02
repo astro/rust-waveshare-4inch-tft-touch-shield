@@ -13,7 +13,7 @@ use embedded_hal::{
 
 mod ili9486;
 use self::ili9486::{
-    command::{self, Command},
+    command,
     Tft, TftWriter
 };
 
@@ -36,21 +36,21 @@ pub fn spi_mode() -> SpiMode {
 pub const WIDTH: usize = 320;
 pub const HEIGHT: usize = 480;
 
-pub struct Display<SPI: SpiTransfer<u8>, TFT_DC: OutputPin, TFT_CS: OutputPin> {
+pub struct Display<SPI: SpiTransfer<u8>, TftDc: OutputPin, TftCs: OutputPin> {
     spi: SPI,
     /// Data/Command Select Pin
-    tft_dc: TFT_DC,
+    tft_dc: TftDc,
     /// Chip Select
-    tft_cs: TFT_CS,
+    tft_cs: TftCs,
 }
 
-impl<SPI: SpiTransfer<u8>, TFT_DC: OutputPin, TFT_CS: OutputPin> Display<SPI, TFT_DC, TFT_CS> {
-    pub fn new(spi: SPI, tft_dc: TFT_DC, tft_cs: TFT_CS) -> Self {
+impl<SPI: SpiTransfer<u8>, TftDc: OutputPin, TftCs: OutputPin> Display<SPI, TftDc, TftCs> {
+    pub fn new(spi: SPI, tft_dc: TftDc, tft_cs: TftCs) -> Result<Self, SPI::Error> {
         let mut this = Display { spi, tft_dc, tft_cs };
 
         this.tft().init();
-        this.tft().write_command(command::SleepOut);
-        this.tft().write_command(command::DisplayOn);
+        this.tft().write_command(command::SleepOut)?;
+        this.tft().write_command(command::DisplayOn)?;
         this.tft().write_command(command::MemoryAccessControl {
             rgb_to_bgr: true,
             row_addr_order: false,
@@ -58,20 +58,21 @@ impl<SPI: SpiTransfer<u8>, TFT_DC: OutputPin, TFT_CS: OutputPin> Display<SPI, TF
             row_col_exchange: false,
             vert_refresh_order: false,
             horiz_refresh_order: false,
-        });
+        })?;
         this.tft().write_command(command::InterfacePixelFormat {
             cpu_format: command::PixelFormat::Bpp16,
             rgb_format: command::PixelFormat::Bpp16,
-        });
+        })?;
 
-        this
+        Ok(this)
     }
 
-    pub fn tft<'a>(&'a mut self) -> Tft<'a, SPI, TFT_DC, TFT_CS> {
+    pub fn tft<'a>(&'a mut self) -> Tft<'a, SPI, TftDc, TftCs> {
         Tft { display: self }
     }
 
-    pub fn write_pixels<'a>(&'a mut self) -> Result<TftWriter<'a, SPI, TFT_DC, TFT_CS>, SPI::Error> {
+    pub fn write_pixels<'a>(&'a mut self) -> Result<TftWriter<'a, SPI, TftDc, TftCs>, SPI::Error> {
+        // TODO: const from command::MemoryWrite
         self.tft().write(0x2C)
     }
 

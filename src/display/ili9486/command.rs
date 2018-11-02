@@ -119,7 +119,7 @@ impl Command for MemoryAccessControl {
         [my | mx | mv | ml | bgr | mh]
     }
 
-    fn decode(buffer: &Self::Buffer) -> Self::Response {
+    fn decode(_buffer: &Self::Buffer) -> Self::Response {
     }
 }
 
@@ -147,7 +147,7 @@ impl Command for InterfacePixelFormat {
          (self.cpu_format as u8)]
     }
 
-    fn decode(buffer: &Self::Buffer) -> Self::Response {
+    fn decode(_buffer: &Self::Buffer) -> Self::Response {
     }
 }
 
