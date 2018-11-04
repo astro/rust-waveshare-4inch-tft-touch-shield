@@ -1,14 +1,19 @@
+use core::mem::replace;
+
 use embedded_hal::{
     digital::OutputPin,
-    blocking::{
-        delay::DelayMs,
-        spi::Transfer as SpiTransfer,
-    },
+    // blocking::delay::DelayMs,
     spi::{
         Mode as SpiMode,
         Polarity as SpiPolarity,
         Phase as SpiPhase,
     },
+};
+use stm32f429_hal::{
+    stm32f429::SPI1,
+    rcc::{Clocks, APB2},
+    spi::{Spi, Error},
+    time::U32Ext,
 };
 
 mod ili9486;
@@ -17,14 +22,12 @@ use self::ili9486::{
     Tft, TftWriter
 };
 
-/// TODO: move to ili
-pub fn spi_mhz() -> u32 {
-    9
-}
+pub const WIDTH: usize = 320;
+pub const HEIGHT: usize = 480;
 
-/// TODO: move to ili
+
 /// TODO: use MODE0 after next embedded_hal release
-pub fn spi_mode() -> SpiMode {
+fn spi_mode0() -> SpiMode {
     let polarity = SpiPolarity::IdleLow;
     let phase = SpiPhase::CaptureOnFirstTransition;
     SpiMode {
@@ -33,22 +36,85 @@ pub fn spi_mode() -> SpiMode {
     }
 }
 
-pub const WIDTH: usize = 320;
-pub const HEIGHT: usize = 480;
+mod spi1 {
+    use embedded_hal::spi::Mode as SpiMode;
+    use stm32f429_hal::{
+        stm32f429::SPI1,
+        spi::Spi,
+        gpio::{
+            AF5,
+            gpioa::{PA5, PA6, PA7},
+        },
+    };
 
-pub struct Display<SPI: SpiTransfer<u8>, TftDc: OutputPin, TftCs: OutputPin> {
-    spi: SPI,
+    pub type Sck = PA5<AF5>;
+    pub type Miso = PA6<AF5>;
+    pub type Mosi = PA7<AF5>;
+    pub type ReadySpi = Spi<SPI1, (Sck, Miso, Mosi)>;
+
+    pub enum State {
+        Reset(SPI1, Sck, Miso, Mosi),
+        Ready(Target, ReadySpi),
+        Invalid,
+    }
+
+    impl State {
+        pub fn mut_spi(&mut self) -> &mut ReadySpi {
+            match self {
+                State::Ready(_, spi) => spi,
+                State::Reset(_, _, _, _) => panic!("SPI not setup"),
+                State::Invalid => unreachable!(),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Target {
+        /// TFT controller
+        Tft,
+        /// Touch screen
+        Ts,
+        /// SD card slot
+        Sd,
+    }
+
+    impl Target {
+        pub fn mhz(&self) -> u32 {
+            match *self {
+                Target::Tft => 16,
+                _ => panic!("TODO: Not implemented"),
+            }
+        }
+
+        pub fn mode(&self) -> SpiMode {
+            super::spi_mode0()
+        }
+    }
+}
+
+pub struct Display<TftDc: OutputPin, TftCs: OutputPin> {
+    spi_state: spi1::State,
+    apb2: APB2,
+    clocks: Clocks,
     /// Data/Command Select Pin
     tft_dc: TftDc,
     /// Chip Select
     tft_cs: TftCs,
 }
 
-impl<SPI: SpiTransfer<u8>, TftDc: OutputPin, TftCs: OutputPin> Display<SPI, TftDc, TftCs> {
-    pub fn new(spi: SPI, tft_dc: TftDc, tft_cs: TftCs) -> Result<Self, SPI::Error> {
-        let mut this = Display { spi, tft_dc, tft_cs };
+impl<TftDc: OutputPin, TftCs: OutputPin> Display<TftDc, TftCs> {
+    pub fn new(
+        sck: spi1::Sck, miso: spi1::Miso, mosi: spi1::Mosi,
+        spi: SPI1, apb2: APB2, clocks: Clocks,
+        tft_dc: TftDc, tft_cs: TftCs
+    ) -> Result<Self, Error> {
+        let mut this = Display {
+            spi_state: spi1::State::Reset(spi, sck, miso, mosi),
+            apb2, clocks,
+            tft_dc,
+            tft_cs,
+        };
 
-        this.tft().init();
         this.tft().write_command(command::SleepOut)?;
         this.tft().write_command(command::DisplayOn)?;
         this.tft().write_command(command::MemoryAccessControl {
@@ -67,20 +133,61 @@ impl<SPI: SpiTransfer<u8>, TftDc: OutputPin, TftCs: OutputPin> Display<SPI, TftD
         Ok(this)
     }
 
-    pub fn tft<'a>(&'a mut self) -> Tft<'a, SPI, TftDc, TftCs> {
-        Tft { display: self }
+    /// Lazy switching of SPI modes
+    fn setup_spi(&mut self, target: spi1::Target) {
+        let spi_state = replace(&mut self.spi_state, spi1::State::Invalid);
+        let (spi1, (sck, miso, mosi)) =
+             match spi_state {
+                 spi1::State::Ready(current_target, spi) =>
+                     if current_target == target {
+                         // All is well
+                         self.spi_state = spi1::State::Ready(current_target, spi);
+                         return;
+                     } else {
+                         self.tft_cs.set_high();
+                         // TODO: flush DMA?
+                         spi.free()
+                     },
+                 spi1::State::Reset(spi1, sck, miso, mosi) =>
+                     (spi1, (sck, miso, mosi)),
+                 spi1::State::Invalid =>
+                     unreachable!(),
+             };
+
+        let spi = Spi::spi1(
+            spi1, (sck, miso, mosi),
+            target.mode(), target.mhz().mhz(),
+            self.clocks, &mut self.apb2
+        );
+        self.spi_state = spi1::State::Ready(target, spi);
+
+        match target {
+            spi1::Target::Tft =>
+                self.tft_cs.set_low(),
+            _ => panic!("TODO: Not implemented"),
+        }
     }
 
-    pub fn write_pixels<'a>(&'a mut self) -> Result<TftWriter<'a, SPI, TftDc, TftCs>, SPI::Error> {
+    pub fn tft<'a>(&'a mut self) -> Tft<'a, spi1::ReadySpi, TftDc> {
+        self.setup_spi(spi1::Target::Tft);
+
+        let spi = self.spi_state.mut_spi();
+        Tft {
+            dc: &mut self.tft_dc,
+            spi: spi,
+        }
+    }
+
+    pub fn write_pixels<'a>(&'a mut self) -> Result<TftWriter<'a, spi1::ReadySpi>, Error> {
         // TODO: const from command::MemoryWrite
         self.tft().write(0x2C)
     }
 
-    pub fn read_tft_identification(&mut self) -> Result<command::DisplayIdentification, SPI::Error> {
+    pub fn read_tft_identification(&mut self) -> Result<command::DisplayIdentification, Error> {
         self.tft().write_command(command::ReadDisplayIdentification)
     }
 
-    pub fn set_inversion(&mut self, inverted: bool) -> Result<(), SPI::Error> {
+    pub fn set_inversion(&mut self, inverted: bool) -> Result<(), Error> {
         if inverted {
             self.tft().write_command(command::InversionOn)
         } else {

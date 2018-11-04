@@ -9,14 +9,13 @@ extern crate stm32f429_hal;
 extern crate cortex_m_semihosting as sh;
 extern crate embedded_hal;
 
-// use core::fmt::Write;
+use core::fmt::Write;
 use stm32f429_hal::{
     stm32f429,
     rcc::RccExt,
     flash::FlashExt,
     gpio::GpioExt,
     delay::Delay,
-    spi::Spi,
     time::U32Ext,
 };
 use embedded_hal::{
@@ -29,7 +28,7 @@ use display::{Display, WIDTH, HEIGHT};
 
 #[entry]
 fn main() -> ! {
-    // let mut hstdout = sh::hio::hstdout().unwrap();
+    let mut hstdout = sh::hio::hstdout().unwrap();
 
     let mut cp = cortex_m::Peripherals::take().unwrap();
     let dp = stm32f429::Peripherals::take().unwrap();
@@ -67,8 +66,6 @@ fn main() -> ! {
     let miso = gpioa.pa6.into_af5(&mut gpioa.moder, &mut gpioa.afrl);
     let sck = gpioa.pa5.into_af5(&mut gpioa.moder, &mut gpioa.afrl);
 
-    let spi = Spi::spi1(dp.SPI1, (sck, miso, mosi), display::spi_mode(), /*display::spi_mhz()*/ 10.mhz(), clocks, &mut rcc.apb2);
-
     lcd_rst.set_high();
     delay.delay_us(5u16);
     lcd_rst.set_low();
@@ -77,13 +74,16 @@ fn main() -> ! {
     delay.delay_us(5u16);
 
     lcd_bl.set_high();
-    let mut display = Display::new(spi, lcd_dc, lcd_cs)
-        .expect("display");
+    let mut display = Display::new(
+        sck, miso, mosi,
+        dp.SPI1, rcc.apb2, clocks,
+        lcd_dc, lcd_cs
+    ).expect("display");
 
     let mut t = 0;
     let mut buf = [0u8; 2 * WIDTH];
     loop {
-        // writeln!(hstdout, "Loop: {}", t).unwrap();
+        writeln!(hstdout, "Loop: {}", t).unwrap();
         // display.set_inversion(t % 2 == 0);
 
         let mut w = display.write_pixels()
