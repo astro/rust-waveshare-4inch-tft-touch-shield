@@ -139,21 +139,10 @@ impl<TftDc: OutputPin, TftCs: OutputPin, TsCs: OutputPin, SdCs: OutputPin> Displ
             vert_refresh_order: false,
             horiz_refresh_order: false,
         })?;
-        this.tft_cs.set_high();
-        delay.delay_ms(5);
-        this.tft_cs.set_low();
         let r = this.tft().write_command(command::InterfacePixelFormat {
             cpu_format: command::PixelFormat::Bpp16,
             rgb_format: command::PixelFormat::Bpp16,
         })?;
-        this.tft_cs.set_high();
-        // let mut hstdout = sh::hio::hstdout().unwrap();
-        // writeln!(hstdout, "pf: {:?}", r).unwrap();
-        delay.delay_ms(5);
-
-        // let mut hstdout = sh::hio::hstdout().unwrap();
-        this.tft_cs.set_low();
-        // writeln!(hstdout, "pf: {:?}", this.tft().write_command(command::ReadInterfacePixelFormat)?).unwrap();
 
         Ok(this)
     }
@@ -191,28 +180,20 @@ impl<TftDc: OutputPin, TftCs: OutputPin, TsCs: OutputPin, SdCs: OutputPin> Displ
             self.clocks, &mut self.apb2
         );
         self.spi_state = spi1::State::Ready(target, spi);
-
-        match target {
-            spi1::Target::Tft =>
-                self.tft_cs.set_low(),
-            spi1::Target::Ts =>
-                self.ts_cs.set_low(),
-            spi1::Target::Sd =>
-                self.sd_cs.set_low(),
-        }
     }
 
-    pub fn tft<'a>(&'a mut self) -> Tft<'a, spi1::ReadySpi, TftDc> {
+    pub fn tft<'a>(&'a mut self) -> Tft<'a, spi1::ReadySpi, TftDc, TftCs> {
         self.setup_spi(spi1::Target::Tft);
 
         let spi = self.spi_state.mut_spi();
         Tft {
-            dc: &mut self.tft_dc,
             spi: spi,
+            dc: &mut self.tft_dc,
+            cs: &mut self.tft_cs,
         }
     }
 
-    pub fn write_pixels<'a>(&'a mut self) -> Result<TftWriter<'a, spi1::ReadySpi>, Error> {
+    pub fn write_pixels<'a>(&'a mut self) -> Result<TftWriter<'a, spi1::ReadySpi, TftCs>, Error> {
         self.tft().write(command::MemoryWrite::number())
     }
 
