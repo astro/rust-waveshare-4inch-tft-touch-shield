@@ -18,7 +18,7 @@ use stm32f429_hal::{
 
 mod ili9486;
 use self::ili9486::{
-    command,
+    command::{self, Command},
     Tft, TftWriter
 };
 
@@ -198,8 +198,7 @@ impl<TftDc: OutputPin, TftCs: OutputPin, TsCs: OutputPin, SdCs: OutputPin> Displ
     }
 
     pub fn write_pixels<'a>(&'a mut self) -> Result<TftWriter<'a, spi1::ReadySpi>, Error> {
-        // TODO: const from command::MemoryWrite
-        self.tft().write(0x2C)
+        self.tft().write(command::MemoryWrite::number())
     }
 
     pub fn read_tft_identification(&mut self) -> Result<command::DisplayIdentification, Error> {

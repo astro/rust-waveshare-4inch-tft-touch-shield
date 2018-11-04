@@ -26,7 +26,7 @@ impl<'a, SPI: SpiTransfer<u8>, DC: OutputPin> Tft<'a, SPI, DC> {
 
     pub fn write_command<C: Command>(self, c: C) -> Result<C::Response, SPI::Error> {
         let response = {
-            let mut w = self.write(c.number())?;
+            let mut w = self.write(C::number())?;
             let mut buf = c.encode();
             w.transfer(buf.as_mut())?;
             C::decode(&buf)

@@ -2,7 +2,7 @@ pub trait Command {
     type Buffer: AsMut<[u8]>;
     type Response;
 
-    fn number(&self) -> u8;
+    fn number() -> u8;
     fn encode(self) -> Self::Buffer;
     fn decode(&Self::Buffer) -> Self::Response;
 }
@@ -15,7 +15,7 @@ macro_rules! simple_command {
             type Buffer = [u8; 0];
             type Response = ();
 
-            fn number(&self) -> u8 {
+            fn number() -> u8 {
                 $number
             }
 
@@ -36,7 +36,7 @@ impl<'a> Command for MemoryWrite<'a> {
     type Buffer = &'a mut [u8];
     type Response = ();
 
-    fn number(&self) -> u8 {
+    fn number() -> u8 {
         0x2C
     }
 
@@ -62,7 +62,7 @@ impl Command for ReadDisplayIdentification {
     type Buffer = [u8; 4];
     type Response = DisplayIdentification;
 
-    fn number(&self) -> u8 {
+    fn number() -> u8 {
         0x04
     }
 
@@ -98,7 +98,7 @@ impl Command for MemoryAccessControl {
     type Buffer = [u8; 1];
     type Response = ();
 
-    fn number(&self) -> u8 {
+    fn number() -> u8 {
         0x36
     }
 
@@ -138,7 +138,7 @@ impl Command for InterfacePixelFormat {
     type Buffer = [u8; 1];
     type Response = ();
 
-    fn number(&self) -> u8 {
+    fn number() -> u8 {
         0x3A
     }
 
