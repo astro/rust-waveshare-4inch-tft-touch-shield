@@ -129,6 +129,17 @@ pub enum PixelFormat {
     Bpp18 = 0b110,
 }
 
+impl From<u8> for PixelFormat {
+    fn from(x: u8) -> Self {
+        match x {
+            0b101 => PixelFormat::Bpp16,
+            0b110 => PixelFormat::Bpp18,
+            _ => panic!("Unknown pixel format {:02X}", x),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
 pub struct InterfacePixelFormat {
     pub cpu_format: PixelFormat,
     pub rgb_format: PixelFormat,
@@ -144,10 +155,40 @@ impl Command for InterfacePixelFormat {
 
     fn encode(self) -> Self::Buffer {
         [((self.cpu_format as u8) << 4) |
-         (self.cpu_format as u8)]
+         (self.rgb_format as u8)]
     }
 
-    fn decode(_buffer: &Self::Buffer) -> Self::Response {
+    fn decode(buffer: &Self::Buffer) -> Self::Response {
+        *buffer
+    }
+}
+
+pub struct ReadInterfacePixelFormat;
+
+impl Command for ReadInterfacePixelFormat {
+    type Buffer = [u8; 2];
+    type Response = InterfacePixelFormat;
+
+    fn number() -> u8 {
+        0x0C
+    }
+
+    fn encode(self) -> Self::Buffer {
+        [0, 0]
+    }
+
+    fn decode(buffer: &Self::Buffer) -> Self::Response {
+use sh;
+use core::fmt::Write;
+        let mut hstdout = sh::hio::hstdout().unwrap();
+        writeln!(hstdout, "decode ipf: {:02X} {:02X}", buffer[0], buffer[1]).unwrap();
+
+        let cpu_format = (buffer[1] >> 4).into();
+        let rgb_format = (buffer[1] & 0xF).into();
+        InterfacePixelFormat {
+            cpu_format,
+            rgb_format,
+        }
     }
 }
 
