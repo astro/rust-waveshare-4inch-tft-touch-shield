@@ -2,7 +2,7 @@ use core::mem::replace;
 
 use embedded_hal::{
     digital::OutputPin,
-    // blocking::delay::DelayMs,
+    blocking::delay::DelayMs,
     spi::{
         Mode as SpiMode,
         Polarity as SpiPolarity,
@@ -81,7 +81,7 @@ mod spi1 {
     impl Target {
         pub fn mhz(&self) -> u32 {
             match *self {
-                Target::Tft => 9,  // TODO: 16?
+                Target::Tft => 12,
                 Target::Ts => 2,
                 Target::Sd => 8,
                 _ => panic!("TODO: Not implemented"),
@@ -109,11 +109,12 @@ pub struct Display<TftDc: OutputPin, TftCs: OutputPin, TsCs: OutputPin, SdCs: Ou
 }
 
 impl<TftDc: OutputPin, TftCs: OutputPin, TsCs: OutputPin, SdCs: OutputPin> Display<TftDc, TftCs, TsCs, SdCs> {
-    pub fn new(
+    pub fn new<D: DelayMs<u16>>(
         sck: spi1::Sck, miso: spi1::Miso, mosi: spi1::Mosi,
         spi: SPI1, apb2: APB2, clocks: Clocks,
         tft_dc: TftDc, tft_cs: TftCs,
-        ts_cs: TsCs, sd_cs: SdCs
+        ts_cs: TsCs, sd_cs: SdCs,
+        delay: &mut D,
     ) -> Result<Self, Error> {
         let mut this = Display {
             spi_state: spi1::State::Reset(spi, sck, miso, mosi),
@@ -125,7 +126,10 @@ impl<TftDc: OutputPin, TftCs: OutputPin, TsCs: OutputPin, SdCs: OutputPin> Displ
         };
 
         this.set_all_cs_high();
+
         this.tft().write_command(command::SleepOut)?;
+        delay.delay_ms(5);
+
         this.tft().write_command(command::DisplayOn)?;
         this.tft().write_command(command::MemoryAccessControl {
             rgb_to_bgr: true,
@@ -135,10 +139,21 @@ impl<TftDc: OutputPin, TftCs: OutputPin, TsCs: OutputPin, SdCs: OutputPin> Displ
             vert_refresh_order: false,
             horiz_refresh_order: false,
         })?;
-        this.tft().write_command(command::InterfacePixelFormat {
+        this.tft_cs.set_high();
+        delay.delay_ms(5);
+        this.tft_cs.set_low();
+        let r = this.tft().write_command(command::InterfacePixelFormat {
             cpu_format: command::PixelFormat::Bpp16,
             rgb_format: command::PixelFormat::Bpp16,
         })?;
+        this.tft_cs.set_high();
+        // let mut hstdout = sh::hio::hstdout().unwrap();
+        // writeln!(hstdout, "pf: {:?}", r).unwrap();
+        delay.delay_ms(5);
+
+        // let mut hstdout = sh::hio::hstdout().unwrap();
+        this.tft_cs.set_low();
+        // writeln!(hstdout, "pf: {:?}", this.tft().write_command(command::ReadInterfacePixelFormat)?).unwrap();
 
         Ok(this)
     }

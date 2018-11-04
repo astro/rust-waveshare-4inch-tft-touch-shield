@@ -69,25 +69,25 @@ fn main() -> ! {
     let miso = gpioa.pa6.into_af5(&mut gpioa.moder, &mut gpioa.afrl);
     let sck = gpioa.pa5.into_af5(&mut gpioa.moder, &mut gpioa.afrl);
 
-    lcd_rst.set_high();
-    delay.delay_us(5u16);
     lcd_rst.set_low();
-    delay.delay_us(5u16);
+    delay.delay_us(9u16);
     lcd_rst.set_high();
-    delay.delay_us(5u16);
+    delay.delay_us(300u16);
 
     lcd_bl.set_high();
     let mut display = Display::new(
         sck, miso, mosi,
         dp.SPI1, rcc.apb2, clocks,
         lcd_dc, lcd_cs,
-        ts_cs, sd_cs
+        ts_cs, sd_cs,
+        &mut delay
     ).expect("display");
+    // writeln!(hstdout, "Ident: {:?}", display.read_tft_identification().unwrap()).unwrap();
 
     let mut t = 0;
     let mut buf = [0u8; 2 * WIDTH];
     loop {
-        writeln!(hstdout, "Loop: {}", t).unwrap();
+        // writeln!(hstdout, "Loop: {}", t).unwrap();
         // display.set_inversion(t % 2 == 0);
 
         let mut w = display.write_pixels()
