@@ -81,7 +81,9 @@ mod spi1 {
     impl Target {
         pub fn mhz(&self) -> u32 {
             match *self {
-                Target::Tft => 16,
+                Target::Tft => 9,  // TODO: 16?
+                Target::Ts => 2,
+                Target::Sd => 8,
                 _ => panic!("TODO: Not implemented"),
             }
         }
@@ -92,7 +94,7 @@ mod spi1 {
     }
 }
 
-pub struct Display<TftDc: OutputPin, TftCs: OutputPin> {
+pub struct Display<TftDc: OutputPin, TftCs: OutputPin, TsCs: OutputPin, SdCs: OutputPin> {
     spi_state: spi1::State,
     apb2: APB2,
     clocks: Clocks,
@@ -100,21 +102,29 @@ pub struct Display<TftDc: OutputPin, TftCs: OutputPin> {
     tft_dc: TftDc,
     /// Chip Select
     tft_cs: TftCs,
+    /// Chip Select
+    ts_cs: TsCs,
+    /// Chip Select
+    sd_cs: SdCs,
 }
 
-impl<TftDc: OutputPin, TftCs: OutputPin> Display<TftDc, TftCs> {
+impl<TftDc: OutputPin, TftCs: OutputPin, TsCs: OutputPin, SdCs: OutputPin> Display<TftDc, TftCs, TsCs, SdCs> {
     pub fn new(
         sck: spi1::Sck, miso: spi1::Miso, mosi: spi1::Mosi,
         spi: SPI1, apb2: APB2, clocks: Clocks,
-        tft_dc: TftDc, tft_cs: TftCs
+        tft_dc: TftDc, tft_cs: TftCs,
+        ts_cs: TsCs, sd_cs: SdCs
     ) -> Result<Self, Error> {
         let mut this = Display {
             spi_state: spi1::State::Reset(spi, sck, miso, mosi),
             apb2, clocks,
             tft_dc,
             tft_cs,
+            ts_cs,
+            sd_cs,
         };
 
+        this.set_all_cs_high();
         this.tft().write_command(command::SleepOut)?;
         this.tft().write_command(command::DisplayOn)?;
         this.tft().write_command(command::MemoryAccessControl {
@@ -133,6 +143,12 @@ impl<TftDc: OutputPin, TftCs: OutputPin> Display<TftDc, TftCs> {
         Ok(this)
     }
 
+    fn set_all_cs_high(&mut self) {
+        self.tft_cs.set_high();
+        self.ts_cs.set_high();
+        self.sd_cs.set_high();
+    }
+
     /// Lazy switching of SPI modes
     fn setup_spi(&mut self, target: spi1::Target) {
         let spi_state = replace(&mut self.spi_state, spi1::State::Invalid);
@@ -144,7 +160,7 @@ impl<TftDc: OutputPin, TftCs: OutputPin> Display<TftDc, TftCs> {
                          self.spi_state = spi1::State::Ready(current_target, spi);
                          return;
                      } else {
-                         self.tft_cs.set_high();
+                         self.set_all_cs_high();
                          // TODO: flush DMA?
                          spi.free()
                      },
@@ -164,7 +180,10 @@ impl<TftDc: OutputPin, TftCs: OutputPin> Display<TftDc, TftCs> {
         match target {
             spi1::Target::Tft =>
                 self.tft_cs.set_low(),
-            _ => panic!("TODO: Not implemented"),
+            spi1::Target::Ts =>
+                self.ts_cs.set_low(),
+            spi1::Target::Sd =>
+                self.sd_cs.set_low(),
         }
     }
 

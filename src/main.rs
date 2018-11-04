@@ -51,6 +51,7 @@ fn main() -> ! {
     let mut gpioa = dp.GPIOA.split(&mut rcc.ahb1);
     let mut gpiob = dp.GPIOB.split(&mut rcc.ahb1);
     let mut gpiod = dp.GPIOD.split(&mut rcc.ahb1);
+    let mut gpioe = dp.GPIOE.split(&mut rcc.ahb1);
     let mut gpiof = dp.GPIOF.split(&mut rcc.ahb1);
 
     let mut led_green = gpiob.pb0.into_push_pull_output(&mut gpiob.moder, &mut gpiob.otyper);
@@ -61,6 +62,8 @@ fn main() -> ! {
     let mut lcd_rst = gpiof.pf12.into_push_pull_output(&mut gpiof.moder, &mut gpiof.otyper);
     let lcd_dc = gpiof.pf13.into_push_pull_output(&mut gpiof.moder, &mut gpiof.otyper);
     let lcd_cs = gpiod.pd14.into_push_pull_output(&mut gpiod.moder, &mut gpiod.otyper);
+    let ts_cs = gpiof.pf14.into_push_pull_output(&mut gpiof.moder, &mut gpiof.otyper);
+    let sd_cs = gpioe.pe11.into_push_pull_output(&mut gpioe.moder, &mut gpioe.otyper);
 
     let mosi = gpioa.pa7.into_af5(&mut gpioa.moder, &mut gpioa.afrl);
     let miso = gpioa.pa6.into_af5(&mut gpioa.moder, &mut gpioa.afrl);
@@ -77,7 +80,8 @@ fn main() -> ! {
     let mut display = Display::new(
         sck, miso, mosi,
         dp.SPI1, rcc.apb2, clocks,
-        lcd_dc, lcd_cs
+        lcd_dc, lcd_cs,
+        ts_cs, sd_cs
     ).expect("display");
 
     let mut t = 0;
