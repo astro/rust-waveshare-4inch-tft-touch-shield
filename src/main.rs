@@ -28,6 +28,13 @@ mod spi;
 mod display;
 use display::{Display, WIDTH, HEIGHT};
 
+struct ScanLine([u8; 2 * WIDTH]);
+impl AsRef<[u8]> for ScanLine {
+    fn as_ref(&self) -> &[u8] {
+        &self.0[..]
+    }
+}
+
 #[entry]
 fn main() -> ! {
     let mut hstdout = sh::hio::hstdout().unwrap();
@@ -94,7 +101,7 @@ fn main() -> ! {
     loop {
         // writeln!(hstdout, "Loop: {}", t).unwrap();
         led_red.set_low();
-        let mut w = display.write_pixels()
+        let mut w = display.write_pixels::<ScanLine>()
             .expect("write_pixels");
         for y in 0..HEIGHT {
             let mut buf = [0u8; 2 * WIDTH];
@@ -117,7 +124,7 @@ fn main() -> ! {
             led_blue.set_low();
             // writeln!(hstdout, "{}: {:?}", y, &buf[..]);
             led_green.set_high();
-            w.write(&buf[..])
+            w.write(ScanLine(buf))
                 .expect("write");
             led_green.set_low();
         }

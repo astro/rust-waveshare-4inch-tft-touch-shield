@@ -33,15 +33,13 @@ impl<'a, SPI: SpiDmaWrite, DC: OutputPin, CS: OutputPin> Tft<'a, SPI, DC, CS> {
             cs: self.cs,
         })
     }
+}
 
-    pub fn write_command<C: Command>(self, c: C) -> Result<C::Response, SPI::Error> {
-        let response = {
-            let mut w = self.writer(C::number())?;
-            let mut buf = c.encode();
-            w.write(buf.as_mut())?;
-            C::decode(&buf)
-        };
-        Ok(response)
+impl<'a, B: AsRef<[u8]>, SPI: SpiDmaWrite<DmaBuffer=B>, DC: OutputPin, CS: OutputPin> Tft<'a, SPI, DC, CS> {
+    pub fn write_command<C: Command<Buffer=B>>(self, c: C) -> Result<(), SPI::Error> {
+        let mut w = self.writer(C::number())?;
+        let mut buf = c.encode();
+        w.write(buf)
     }
 }
 
@@ -52,7 +50,7 @@ pub struct TftWriter<'a, SPI: SpiDmaWrite, CS: OutputPin> {
 }
 
 impl<'a, SPI: SpiDmaWrite, CS: OutputPin> TftWriter<'a, SPI, CS> {
-    pub fn write<B: AsRef<[u8]>>(&mut self, buffer: B) -> Result<(), SPI::Error> {
+    pub fn write(&mut self, buffer: SPI::DmaBuffer) -> Result<(), SPI::Error> {
         self.spi.write_async(buffer)
     }
 }

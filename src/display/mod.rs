@@ -208,25 +208,23 @@ impl Display {
         self.spi_state = spi1::State::Ready(target, spi);
     }
 
-    pub fn tft(&mut self) -> Tft<DisplaySpi, TftDc, TftCs> {
+    pub fn tft<B: AsRef<[u8]>>(&mut self) -> Tft<DisplaySpi<B>, TftDc, TftCs> {
         self.setup_spi(spi1::Target::Tft);
 
         Tft {
             spi: DisplaySpi {
                 spi: self.spi_state.mut_spi(),
                 spi_dma_stream: &mut self.spi_dma_stream,
+                dma_buffer: None,
             },
             cs: &mut self.tft_cs,
             dc: &mut self.tft_dc,
         }
     }
 
-    pub fn write_pixels(&mut self) -> Result<TftWriter<DisplaySpi, TftCs>, Error> {
-        self.tft().writer(command::MemoryWrite::number())
-    }
-
-    pub fn read_tft_identification(&mut self) -> Result<command::DisplayIdentification, Error> {
-        self.tft().write_command(command::ReadDisplayIdentification)
+    pub fn write_pixels<B: AsRef<[u8]>>(&mut self) -> Result<TftWriter<DisplaySpi<B>, TftCs>, Error> {
+        // TODO: send empty memorywrite
+        self.tft::<B>().writer(command::MemoryWrite::number())
     }
 
     pub fn set_inversion(&mut self, inverted: bool) -> Result<(), Error> {
@@ -238,19 +236,24 @@ impl Display {
     }
 }
 
-pub struct DisplaySpi<'a> {
+pub struct DisplaySpi<'a, B: AsRef<[u8]>> {
     spi: &'a mut spi1::ReadySpi,
     spi_dma_stream: &'a mut Option<spi1::DmaStream>,
+    dma_buffer: Option<B>,
 }
 
-impl<'a> SpiDmaWrite for DisplaySpi<'a> {
+impl<'a, Buf: AsRef<[u8]>> SpiDmaWrite for DisplaySpi<'a, Buf> {
     type Error = Error;
+    type DmaBuffer = Buf;
 
     fn write_sync<B: AsRef<[u8]>>(&mut self, buffer: B) -> Result<(), Self::Error> {
         self.spi.write(buffer.as_ref())
     }
 
-    fn write_async<B: AsRef<[u8]>>(&mut self, buffer: B) -> Result<(), Self::Error> {
+    fn write_async(&mut self, buffer: Buf) -> Result<(), Self::Error> {
+        // Clear previous
+        self.flush()?;
+
         if buffer.as_ref().len() == 0 {
             return Ok(());
         }

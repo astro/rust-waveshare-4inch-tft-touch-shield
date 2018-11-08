@@ -1,10 +1,8 @@
 pub trait Command {
-    type Buffer: AsMut<[u8]>;
-    type Response;
+    type Buffer: AsRef<[u8]>;
 
     fn number() -> u8;
     fn encode(self) -> Self::Buffer;
-    fn decode(&Self::Buffer) -> Self::Response;
 }
 
 macro_rules! simple_command {
@@ -13,7 +11,6 @@ macro_rules! simple_command {
 
         impl Command for $name {
             type Buffer = [u8; 0];
-            type Response = ();
 
             fn number() -> u8 {
                 $number
@@ -22,10 +19,6 @@ macro_rules! simple_command {
             fn encode(self) -> Self::Buffer {
                 []
             }
-
-            fn decode(_buffer: &Self::Buffer) -> Self::Response {
-                ()
-            }
         }
     )
 }
@@ -33,8 +26,7 @@ macro_rules! simple_command {
 pub struct MemoryWrite<'a>(pub &'a mut [u8]);
 
 impl<'a> Command for MemoryWrite<'a> {
-    type Buffer = &'a mut [u8];
-    type Response = ();
+    type Buffer = &'a [u8];
 
     fn number() -> u8 {
         0x2C
@@ -42,40 +34,6 @@ impl<'a> Command for MemoryWrite<'a> {
 
     fn encode(self) -> Self::Buffer {
         self.0
-    }
-
-    fn decode(_buffer: &Self::Buffer) -> Self::Response {
-        ()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct DisplayIdentification {
-    module_manufacturer: u8,
-    module_version: u8,
-    module_id: u8,
-}
-
-pub struct ReadDisplayIdentification;
-
-impl Command for ReadDisplayIdentification {
-    type Buffer = [u8; 4];
-    type Response = DisplayIdentification;
-
-    fn number() -> u8 {
-        0x04
-    }
-
-    fn encode(self) -> Self::Buffer {
-        [0; 4]
-    }
-
-    fn decode(buffer: &Self::Buffer) -> Self::Response {
-        DisplayIdentification {
-            module_manufacturer: buffer[1],
-            module_version: buffer[2],
-            module_id: buffer[3],
-        }
     }
 }
 
@@ -96,7 +54,6 @@ pub struct MemoryAccessControl {
 
 impl Command for MemoryAccessControl {
     type Buffer = [u8; 1];
-    type Response = ();
 
     fn number() -> u8 {
         0x36
@@ -117,9 +74,6 @@ impl Command for MemoryAccessControl {
         let bgr = bit_if(self.rgb_to_bgr, 3);
         let mh = bit_if(self.horiz_refresh_order, 2);
         [my | mx | mv | ml | bgr | mh]
-    }
-
-    fn decode(_buffer: &Self::Buffer) -> Self::Response {
     }
 }
 
@@ -147,7 +101,6 @@ pub struct InterfacePixelFormat {
 
 impl Command for InterfacePixelFormat {
     type Buffer = [u8; 1];
-    type Response = ();
 
     fn number() -> u8 {
         0x3A
@@ -157,17 +110,12 @@ impl Command for InterfacePixelFormat {
         [((self.cpu_format as u8) << 4) |
          (self.rgb_format as u8)]
     }
-
-    fn decode(buffer: &Self::Buffer) -> Self::Response {
-        ()
-    }
 }
 
 pub struct ReadInterfacePixelFormat;
 
 impl Command for ReadInterfacePixelFormat {
     type Buffer = [u8; 2];
-    type Response = InterfacePixelFormat;
 
     fn number() -> u8 {
         0x0C
@@ -175,20 +123,6 @@ impl Command for ReadInterfacePixelFormat {
 
     fn encode(self) -> Self::Buffer {
         [0, 0]
-    }
-
-    fn decode(buffer: &Self::Buffer) -> Self::Response {
-use sh;
-use core::fmt::Write;
-        let mut hstdout = sh::hio::hstdout().unwrap();
-        writeln!(hstdout, "decode ipf: {:02X} {:02X}", buffer[0], buffer[1]).unwrap();
-
-        let cpu_format = (buffer[1] >> 4).into();
-        let rgb_format = (buffer[1] & 0xF).into();
-        InterfacePixelFormat {
-            cpu_format,
-            rgb_format,
-        }
     }
 }
 
