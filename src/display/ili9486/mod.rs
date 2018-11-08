@@ -7,23 +7,25 @@ use embedded_hal::{
 
 pub mod command;
 use self::command::*;
+use super::Display;
+use super::super::spi::SpiDmaWrite;
 
 use sh;
 use core::fmt::Write;
 
-pub struct Tft<'a, SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> {
-    pub spi: &'a mut SPI,
+pub struct Tft<'a, SPI: SpiDmaWrite, DC: OutputPin, CS: OutputPin> {
+    pub spi: SPI,
     pub dc: &'a mut DC,
     pub cs: &'a mut CS,
 }
 
-impl<'a, SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> Tft<'a, SPI, DC, CS> {
-    pub fn write(mut self, reg: u8) -> Result<TftWriter<'a, SPI, CS>, SPI::Error> {
-        let mut buf = [0, reg];
+impl<'a, SPI: SpiDmaWrite, DC: OutputPin, CS: OutputPin> Tft<'a, SPI, DC, CS> {
+    pub fn writer(mut self, reg: u8) -> Result<TftWriter<'a, SPI, CS>, SPI::Error> {
+        let buf = [0, reg];
 
         self.dc.set_low();
         self.cs.set_low();
-        let result = self.spi.transfer(&mut buf);
+        let result = self.spi.write_sync(buf);
         self.dc.set_high();
 
         result.map(move |_| TftWriter {
@@ -34,9 +36,9 @@ impl<'a, SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> Tft<'a, SPI, DC, CS
 
     pub fn write_command<C: Command>(self, c: C) -> Result<C::Response, SPI::Error> {
         let response = {
-            let mut w = self.write(C::number())?;
+            let mut w = self.writer(C::number())?;
             let mut buf = c.encode();
-            w.transfer(buf.as_mut())?;
+            w.write(buf.as_mut())?;
             C::decode(&buf)
         };
         Ok(response)
@@ -44,20 +46,20 @@ impl<'a, SPI: SpiTransfer<u8>, DC: OutputPin, CS: OutputPin> Tft<'a, SPI, DC, CS
 }
 
 
-pub struct TftWriter<'a, SPI: SpiTransfer<u8>, CS: OutputPin> {
-    pub spi: &'a mut SPI,
+pub struct TftWriter<'a, SPI: SpiDmaWrite, CS: OutputPin> {
+    pub spi: SPI,
     pub cs: &'a mut CS,
 }
 
-impl<'a, SPI: SpiTransfer<u8>, CS: OutputPin> TftWriter<'a, SPI, CS> {
-    pub fn transfer(&mut self, buffer: &mut [u8]) -> Result<(), SPI::Error> {
-        self.spi.transfer(buffer)
-            .map(|_| ())
+impl<'a, SPI: SpiDmaWrite, CS: OutputPin> TftWriter<'a, SPI, CS> {
+    pub fn write<B: AsRef<[u8]>>(&mut self, buffer: B) -> Result<(), SPI::Error> {
+        self.spi.write_async(buffer)
     }
 }
 
-impl<'a, SPI: SpiTransfer<u8>, CS: OutputPin> Drop for TftWriter<'a, SPI, CS> {
+impl<'a, SPI: SpiDmaWrite, CS: OutputPin> Drop for TftWriter<'a, SPI, CS> {
     fn drop(&mut self) {
+        self.spi.flush();
         self.cs.set_high();
     }
 }

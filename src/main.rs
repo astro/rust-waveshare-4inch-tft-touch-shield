@@ -17,12 +17,14 @@ use stm32f429_hal::{
     gpio::GpioExt,
     delay::Delay,
     time::U32Ext,
+    dma::DmaExt,
 };
 use embedded_hal::{
     digital::OutputPin,
-    blocking::delay::DelayUs,
+    blocking::delay::{DelayUs, DelayMs},
 };
 
+mod spi;
 mod display;
 use display::{Display, WIDTH, HEIGHT};
 
@@ -69,15 +71,19 @@ fn main() -> ! {
     let miso = gpioa.pa6.into_af5(&mut gpioa.moder, &mut gpioa.afrl);
     let sck = gpioa.pa5.into_af5(&mut gpioa.moder, &mut gpioa.afrl);
 
+    let dma_streams = dp.DMA2.split(&mut rcc.ahb1);
+
     lcd_rst.set_low();
-    delay.delay_us(9u16);
+    // delay.delay_us(9u16);
+    delay.delay_ms(50u16);
     lcd_rst.set_high();
-    delay.delay_us(300u16);
+    // delay.delay_us(300u16);
+    delay.delay_ms(50u16);
 
     lcd_bl.set_high();
     let mut display = Display::new(
         sck, miso, mosi,
-        dp.SPI1, rcc.apb2, clocks,
+        dp.SPI1, dma_streams.s3, rcc.apb2, clocks,
         lcd_dc, lcd_cs,
         ts_cs, sd_cs,
         &mut delay
@@ -85,35 +91,39 @@ fn main() -> ! {
     // writeln!(hstdout, "Ident: {:?}", display.read_tft_identification().unwrap()).unwrap();
 
     let mut t = 0;
-    let mut buf = [0u8; 2 * WIDTH];
     loop {
         // writeln!(hstdout, "Loop: {}", t).unwrap();
-        // display.set_inversion(t % 2 == 0);
-
-        let mut w = display.write_pixels()
-            .unwrap();
-
         led_red.set_low();
+        let mut w = display.write_pixels()
+            .expect("write_pixels");
         for y in 0..HEIGHT {
+            let mut buf = [0u8; 2 * WIDTH];
             led_blue.set_high();
+
             for x in 0..WIDTH {
-                let r = 255 * (((x + t) / 16) % 2) as u8;
-                let g = 255 * (((y + t) / 16) % 2) as u8;
-                let b = 255 * (((x - t) / 16) % 2 + ((y - t) / 16) % 2) as u8;
+                // let r = 255 * (((x + t) / 32) % 2) as u8;
+                // let g = 255 * (((y + t) / 32) % 2) as u8;
+                // let b = 255 * (((x - t) / 32) % 2 + ((y - t) / 32) % 2) as u8;
+                let r = (x as u8).wrapping_add(t as u8);
+                let g = (x as u8).wrapping_sub(y as u8).wrapping_add(t as u8);
+                let b = (y as u8).wrapping_sub(t as u8);
                 let i = x * 2;
                 buf[i] = (r & 0xF8) | (g >> 5);
-                buf[i + 1] = ((g & 0xFC) << 3) | (b >> 5);
+                buf[i + 1] = ((g & 0x1C) << 3) | (b >> 5);
+                // buf[i] = r << 2;
+                // buf[i + 1] = g << 2;
+                // buf[i + 2] = b << 2;
             }
             led_blue.set_low();
+            // writeln!(hstdout, "{}: {:?}", y, &buf[..]);
             led_green.set_high();
-            w.transfer(&mut buf)
-                .unwrap();
+            w.write(&buf[..])
+                .expect("write");
             led_green.set_low();
         }
+        // drop(w);
         led_red.set_high();
 
         t += 1;
-        
-        // writeln!(hstdout, "Ident: {:?}", display.read_tft_identification().unwrap()).unwrap();
     }
 }

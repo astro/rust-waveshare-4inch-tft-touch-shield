@@ -159,7 +159,7 @@ impl Command for InterfacePixelFormat {
     }
 
     fn decode(buffer: &Self::Buffer) -> Self::Response {
-        *buffer
+        ()
     }
 }
 

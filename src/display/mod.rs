@@ -2,25 +2,42 @@ use core::mem::replace;
 
 use embedded_hal::{
     digital::OutputPin,
-    blocking::delay::DelayMs,
     spi::{
         Mode as SpiMode,
         Polarity as SpiPolarity,
         Phase as SpiPhase,
     },
+    blocking::{
+        delay::DelayMs,
+        spi::{
+            Transfer as SpiTransfer,
+            Write as SpiWrite,
+        },
+    },
 };
 use stm32f429_hal::{
     stm32f429::SPI1,
     rcc::{Clocks, APB2},
-    spi::{Spi, Error},
+    spi::{Spi, Error, DmaWrite},
+    dma::Transfer,
     time::U32Ext,
+    gpio::{
+        gpiof::{PF13, PF14},
+        gpiod::PD14,
+        gpioe::PE11,
+        Output, PushPull,
+    },
 };
 
+use super::spi::SpiDmaWrite;
 mod ili9486;
 use self::ili9486::{
     command::{self, Command},
     Tft, TftWriter
 };
+
+use sh;
+use core::fmt::Write;
 
 pub const WIDTH: usize = 320;
 pub const HEIGHT: usize = 480;
@@ -45,12 +62,14 @@ mod spi1 {
             AF5,
             gpioa::{PA5, PA6, PA7},
         },
+        dma::dma2,
     };
 
     pub type Sck = PA5<AF5>;
     pub type Miso = PA6<AF5>;
     pub type Mosi = PA7<AF5>;
     pub type ReadySpi = Spi<SPI1, (Sck, Miso, Mosi)>;
+    pub type DmaStream = dma2::S3;
 
     pub enum State {
         Reset(SPI1, Sck, Miso, Mosi),
@@ -94,8 +113,14 @@ mod spi1 {
     }
 }
 
-pub struct Display<TftDc: OutputPin, TftCs: OutputPin, TsCs: OutputPin, SdCs: OutputPin> {
+type TftDc = PF13<Output<PushPull>>;
+type TftCs = PD14<Output<PushPull>>;
+type TsCs = PF14<Output<PushPull>>;
+type SdCs = PE11<Output<PushPull>>;
+
+pub struct Display {
     spi_state: spi1::State,
+    spi_dma_stream: Option<spi1::DmaStream>,
     apb2: APB2,
     clocks: Clocks,
     /// Data/Command Select Pin
@@ -108,16 +133,17 @@ pub struct Display<TftDc: OutputPin, TftCs: OutputPin, TsCs: OutputPin, SdCs: Ou
     sd_cs: SdCs,
 }
 
-impl<TftDc: OutputPin, TftCs: OutputPin, TsCs: OutputPin, SdCs: OutputPin> Display<TftDc, TftCs, TsCs, SdCs> {
+impl Display {
     pub fn new<D: DelayMs<u16>>(
         sck: spi1::Sck, miso: spi1::Miso, mosi: spi1::Mosi,
-        spi: SPI1, apb2: APB2, clocks: Clocks,
+        spi: SPI1, spi_dma_stream: spi1::DmaStream, apb2: APB2, clocks: Clocks,
         tft_dc: TftDc, tft_cs: TftCs,
         ts_cs: TsCs, sd_cs: SdCs,
         delay: &mut D,
     ) -> Result<Self, Error> {
         let mut this = Display {
             spi_state: spi1::State::Reset(spi, sck, miso, mosi),
+            spi_dma_stream: Some(spi_dma_stream),
             apb2, clocks,
             tft_dc,
             tft_cs,
@@ -182,19 +208,21 @@ impl<TftDc: OutputPin, TftCs: OutputPin, TsCs: OutputPin, SdCs: OutputPin> Displ
         self.spi_state = spi1::State::Ready(target, spi);
     }
 
-    pub fn tft<'a>(&'a mut self) -> Tft<'a, spi1::ReadySpi, TftDc, TftCs> {
+    pub fn tft(&mut self) -> Tft<DisplaySpi, TftDc, TftCs> {
         self.setup_spi(spi1::Target::Tft);
 
-        let spi = self.spi_state.mut_spi();
         Tft {
-            spi: spi,
-            dc: &mut self.tft_dc,
+            spi: DisplaySpi {
+                spi: self.spi_state.mut_spi(),
+                spi_dma_stream: &mut self.spi_dma_stream,
+            },
             cs: &mut self.tft_cs,
+            dc: &mut self.tft_dc,
         }
     }
 
-    pub fn write_pixels<'a>(&'a mut self) -> Result<TftWriter<'a, spi1::ReadySpi, TftCs>, Error> {
-        self.tft().write(command::MemoryWrite::number())
+    pub fn write_pixels(&mut self) -> Result<TftWriter<DisplaySpi, TftCs>, Error> {
+        self.tft().writer(command::MemoryWrite::number())
     }
 
     pub fn read_tft_identification(&mut self) -> Result<command::DisplayIdentification, Error> {
@@ -207,5 +235,44 @@ impl<TftDc: OutputPin, TftCs: OutputPin, TsCs: OutputPin, SdCs: OutputPin> Displ
         } else {
             self.tft().write_command(command::InversionOff)
         }
+    }
+}
+
+pub struct DisplaySpi<'a> {
+    spi: &'a mut spi1::ReadySpi,
+    spi_dma_stream: &'a mut Option<spi1::DmaStream>,
+}
+
+impl<'a> SpiDmaWrite for DisplaySpi<'a> {
+    type Error = Error;
+
+    fn write_sync<B: AsRef<[u8]>>(&mut self, buffer: B) -> Result<(), Self::Error> {
+        self.spi.write(buffer.as_ref())
+    }
+
+    fn write_async<B: AsRef<[u8]>>(&mut self, buffer: B) -> Result<(), Self::Error> {
+        if buffer.as_ref().len() == 0 {
+            return Ok(());
+        }
+
+        let stream = self.spi_dma_stream.take().unwrap();
+        let stream =
+            self.spi.dma_write::<_, _, SPI1, spi1::DmaStream, _, _>(stream, buffer)
+            .wait()
+            .unwrap_or_else(|stream| {
+                let mut hstdout = sh::hio::hstdout().unwrap();
+                writeln!(hstdout, "dma err").unwrap();
+                stream
+            });
+        for _ in 0..100 {
+            cortex_m::asm::nop();
+        }
+        *self.spi_dma_stream = Some(stream);
+
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
