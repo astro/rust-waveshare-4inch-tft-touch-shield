@@ -191,7 +191,6 @@ impl Display {
                          return;
                      } else {
                          self.set_all_cs_high();
-                         // TODO: flush DMA?
                          spi.free()
                      },
                  spi1::State::Reset(spi1, sck, miso, mosi) =>
@@ -215,7 +214,7 @@ impl Display {
             spi: DisplaySpi {
                 spi: self.spi_state.mut_spi(),
                 spi_dma_stream: &mut self.spi_dma_stream,
-                dma_buffer: None,
+                dma_xfer: None,
             },
             cs: &mut self.tft_cs,
             dc: &mut self.tft_dc,
@@ -239,7 +238,7 @@ impl Display {
 pub struct DisplaySpi<'a, B: AsRef<[u8]>> {
     spi: &'a mut spi1::ReadySpi,
     spi_dma_stream: &'a mut Option<spi1::DmaStream>,
-    dma_buffer: Option<B>,
+    dma_xfer: Option<stm32f429_hal::dma::dma2::s3::OneShotTransfer<B>>,
 }
 
 impl<'a, Buf: AsRef<[u8]>> SpiDmaWrite for DisplaySpi<'a, Buf> {
@@ -259,23 +258,25 @@ impl<'a, Buf: AsRef<[u8]>> SpiDmaWrite for DisplaySpi<'a, Buf> {
         }
 
         let stream = self.spi_dma_stream.take().unwrap();
-        let stream =
-            self.spi.dma_write::<_, _, SPI1, spi1::DmaStream, _, _>(stream, buffer)
-            .wait()
-            .unwrap_or_else(|stream| {
-                let mut hstdout = sh::hio::hstdout().unwrap();
-                writeln!(hstdout, "dma err").unwrap();
-                stream
-            });
-        for _ in 0..100 {
-            cortex_m::asm::nop();
-        }
-        *self.spi_dma_stream = Some(stream);
-
+        let xfer =
+            self.spi.dma_write::<_, _, SPI1, spi1::DmaStream, _, _>(stream, buffer);
+        self.dma_xfer = Some(xfer);
         Ok(())
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {
-        Ok(())
+        match self.dma_xfer.take() {
+            Some(xfer) => {
+                let stream = xfer.wait()
+                    .unwrap_or_else(|stream| {
+                        let mut hstdout = sh::hio::hstdout().unwrap();
+                        writeln!(hstdout, "dma err").unwrap();
+                        stream
+                    });
+                *self.spi_dma_stream = Some(stream);
+                Ok(())
+            }
+            None => Ok(())
+        }
     }
 }

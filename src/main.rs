@@ -37,7 +37,7 @@ impl AsRef<[u8]> for ScanLine {
 
 #[entry]
 fn main() -> ! {
-    let mut hstdout = sh::hio::hstdout().unwrap();
+    // let mut hstdout = sh::hio::hstdout().unwrap();
 
     let mut cp = cortex_m::Peripherals::take().unwrap();
     let dp = stm32f429::Peripherals::take().unwrap();
@@ -81,11 +81,9 @@ fn main() -> ! {
     let dma_streams = dp.DMA2.split(&mut rcc.ahb1);
 
     lcd_rst.set_low();
-    // delay.delay_us(9u16);
-    delay.delay_ms(50u16);
+    delay.delay_us(9u16);
     lcd_rst.set_high();
-    // delay.delay_us(300u16);
-    delay.delay_ms(50u16);
+    delay.delay_us(300u16);
 
     lcd_bl.set_high();
     let mut display = Display::new(
@@ -95,14 +93,14 @@ fn main() -> ! {
         ts_cs, sd_cs,
         &mut delay
     ).expect("display");
-    // writeln!(hstdout, "Ident: {:?}", display.read_tft_identification().unwrap()).unwrap();
 
     let mut t = 0;
     loop {
-        // writeln!(hstdout, "Loop: {}", t).unwrap();
-        led_red.set_low();
+        led_red.set_high();
         let mut w = display.write_pixels::<ScanLine>()
             .expect("write_pixels");
+        led_red.set_low();
+
         for y in 0..HEIGHT {
             let mut buf = [0u8; 2 * WIDTH];
             led_blue.set_high();
@@ -111,9 +109,9 @@ fn main() -> ! {
                 // let r = 255 * (((x + t) / 32) % 2) as u8;
                 // let g = 255 * (((y + t) / 32) % 2) as u8;
                 // let b = 255 * (((x - t) / 32) % 2 + ((y - t) / 32) % 2) as u8;
-                let r = (x as u8).wrapping_add(t as u8);
-                let g = (x as u8).wrapping_sub(y as u8).wrapping_add(t as u8);
-                let b = (y as u8).wrapping_sub(t as u8);
+                let r = (x as u8).wrapping_add(2 * t as u8);
+                let g = (x as u8).wrapping_sub(y as u8).wrapping_add(5 * t as u8);
+                let b = (y as u8).wrapping_sub(3 * t as u8);
                 let i = x * 2;
                 buf[i] = (r & 0xF8) | (g >> 5);
                 buf[i + 1] = ((g & 0x1C) << 3) | (b >> 5);
@@ -122,14 +120,12 @@ fn main() -> ! {
                 // buf[i + 2] = b << 2;
             }
             led_blue.set_low();
-            // writeln!(hstdout, "{}: {:?}", y, &buf[..]);
+
             led_green.set_high();
             w.write(ScanLine(buf))
                 .expect("write");
             led_green.set_low();
         }
-        // drop(w);
-        led_red.set_high();
 
         t += 1;
     }
