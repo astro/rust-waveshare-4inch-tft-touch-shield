@@ -180,7 +180,7 @@ impl Display {
         self.sd_cs.set_high();
     }
 
-    /// Lazy switching of SPI modes
+    /// Switching of SPI modes if necessary
     fn setup_spi(&mut self, target: spi1::Target) {
         let spi_state = replace(&mut self.spi_state, spi1::State::Invalid);
         let (spi1, (sck, miso, mosi)) =
@@ -246,11 +246,9 @@ impl<'a, Buf: AsRef<[u8]>> SpiDmaWrite for DisplaySpi<'a, Buf> {
     type Error = Error;
     type DmaBuffer = Buf;
 
-    fn read<'b>(&mut self, buffer: &'b mut [u8]) -> Result<(), Self::Error> {
-        for b in buffer {
-            *b = block!(self.spi.read())?;
-        }
-        Ok(())
+    fn transfer<'b>(&mut self, buffer: &'b mut [u8]) -> Result<(), Self::Error> {
+        self.spi.transfer(buffer)
+            .map(|_| ())
     }
 
     fn write_sync<B: AsRef<[u8]>>(&mut self, buffer: B) -> Result<(), Self::Error> {
