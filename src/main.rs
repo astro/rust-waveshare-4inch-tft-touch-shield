@@ -102,9 +102,10 @@ fn main() -> ! {
         led_red.set_low();
 
         for y in 0..HEIGHT {
-            let mut buf = [0u8; 2 * WIDTH];
+            let mut buf: [u8; 2 * WIDTH] = unsafe { core::mem::uninitialized() };
             led_blue.set_high();
 
+            let mut i = 0;
             for x in 0..WIDTH {
                 // let r = 255 * (((x + t) / 32) % 2) as u8;
                 // let g = 255 * (((y + t) / 32) % 2) as u8;
@@ -118,6 +119,7 @@ fn main() -> ! {
                 // buf[i] = r << 2;
                 // buf[i + 1] = g << 2;
                 // buf[i + 2] = b << 2;
+                i += 2;
             }
             led_blue.set_low();
 
