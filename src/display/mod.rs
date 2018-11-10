@@ -6,6 +6,7 @@ use embedded_hal::{
         Mode as SpiMode,
         Polarity as SpiPolarity,
         Phase as SpiPhase,
+        FullDuplex as SpiFullDuplex,
     },
     blocking::{
         delay::DelayMs,
@@ -244,6 +245,13 @@ pub struct DisplaySpi<'a, B: AsRef<[u8]>> {
 impl<'a, Buf: AsRef<[u8]>> SpiDmaWrite for DisplaySpi<'a, Buf> {
     type Error = Error;
     type DmaBuffer = Buf;
+
+    fn read<'b>(&mut self, buffer: &'b mut [u8]) -> Result<(), Self::Error> {
+        for b in buffer {
+            *b = block!(self.spi.read())?;
+        }
+        Ok(())
+    }
 
     fn write_sync<B: AsRef<[u8]>>(&mut self, buffer: B) -> Result<(), Self::Error> {
         self.spi.write(buffer.as_ref())

@@ -8,6 +8,8 @@ extern crate cortex_m_rt as rt;
 extern crate stm32f429_hal;
 extern crate cortex_m_semihosting as sh;
 extern crate embedded_hal;
+#[macro_use]
+extern crate nb;
 
 use core::fmt::Write;
 use stm32f429_hal::{
