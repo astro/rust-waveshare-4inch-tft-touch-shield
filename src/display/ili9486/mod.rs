@@ -7,7 +7,6 @@ use embedded_hal::{
 
 pub mod command;
 use self::command::*;
-use super::Display;
 use super::super::spi::SpiDmaWrite;
 
 use sh;

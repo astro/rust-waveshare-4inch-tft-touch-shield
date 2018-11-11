@@ -28,7 +28,7 @@ use embedded_hal::{
 
 mod spi;
 mod display;
-use display::{Display, WIDTH, HEIGHT};
+use display::{Display, WIDTH, HEIGHT, ili9486::command};
 
 struct ScanLine([u8; 2 * WIDTH]);
 impl AsRef<[u8]> for ScanLine {
@@ -36,6 +36,13 @@ impl AsRef<[u8]> for ScanLine {
         &self.0[..]
     }
 }
+
+const COLORS: &'static [[u8; 3]] = &[
+    [255, 0, 0],
+    [255, 255, 0],
+    [0, 255, 0],
+    [0, 255, 255],
+];
 
 #[entry]
 fn main() -> ! {
@@ -97,39 +104,78 @@ fn main() -> ! {
     ).expect("display");
 
     let mut t = 0;
+    let mut ht = 0;
+    let mut hist = [[0u16; 4]; HEIGHT];
     loop {
         led_red.set_high();
-        let mut w = display.write_pixels::<ScanLine>()
-            .expect("write_pixels");
+        for _ in 0..8 {
+            let vs = display.ts().read_values().unwrap();
+            hist[ht % HEIGHT] = [
+                // vs[0] * (WIDTH as u16) / 4095,
+                // vs[1] * (WIDTH as u16) / 4095,
+                // vs[2] * (WIDTH as u16) / 4095,
+                // vs[3] * (WIDTH as u16) / 4095,
+                vs[0] >> 4,
+                vs[1] >> 4,
+                vs[2] >> 4,
+                vs[3] >> 4,
+            ];
+            ht += 1;
+            if ht >= HEIGHT {
+                ht = 0;
+            }
+        }
         led_red.set_low();
 
-        for y in 0..HEIGHT {
-            let mut buf: [u8; 2 * WIDTH] = unsafe { core::mem::uninitialized() };
-            led_blue.set_high();
-
-            let mut i = 0;
-            for x in 0..WIDTH {
-                // let r = 255 * (((x + t) / 32) % 2) as u8;
-                // let g = 255 * (((y + t) / 32) % 2) as u8;
-                // let b = 255 * (((x - t) / 32) % 2 + ((y - t) / 32) % 2) as u8;
-                let r = (x as u8).wrapping_add(2 * t as u8);
-                let g = (x as u8).wrapping_sub(y as u8).wrapping_add(5 * t as u8);
-                let b = (y as u8).wrapping_sub(3 * t as u8);
-                let i = x * 2;
-                buf[i] = (r & 0xF8) | (g >> 5);
-                buf[i + 1] = ((g & 0x1C) << 3) | (b >> 5);
-                // buf[i] = r << 2;
-                // buf[i + 1] = g << 2;
-                // buf[i + 2] = b << 2;
-                i += 2;
-            }
-            led_blue.set_low();
-
+        {
             led_green.set_high();
-            w.write(ScanLine(buf))
-                .expect("write");
+            let mut w = display.write_pixels::<ScanLine>()
+                .expect("write_pixels");
             led_green.set_low();
+
+            for y in 0..HEIGHT {
+                led_blue.set_high();
+                let mut buf: [u8; 2 * WIDTH] = unsafe { core::mem::uninitialized() };
+                let mut hty = ht as isize - 1 - y as isize;
+                if hty < 0 { hty += HEIGHT as isize }
+                let h = &hist[hty as usize];
+                let grid = y % (HEIGHT / 8) == 0;
+
+                let mut i = 0;
+                for x in 0..WIDTH {
+                    let mut r = 0;
+                    let mut g = 0;
+                    let mut b = 0;
+                    if grid || x % (WIDTH / 8) == 0 {
+                        b = 128;
+                    }
+
+                    for (hi, hx) in h.iter().enumerate() {
+                        let hx = *hx as usize;
+                        if x == hx {
+                            r = COLORS[hi][0];
+                            g = COLORS[hi][1];
+                            b = COLORS[hi][2];
+                        }
+                    }
+                    
+                    buf[i] = (r & 0xF8) | (g >> 5);
+                    buf[i + 1] = ((g & 0x1C) << 3) | (b >> 5);
+                    i += 2;
+                }
+                led_blue.set_low();
+
+                led_green.set_high();
+                w.write(ScanLine(buf))
+                    .expect("write");
+                led_green.set_low();
+            }
         }
+
+        // let x = display.ts().read(0xD3, &mut delay).unwrap();
+        // let y = display.ts().read(0x93, &mut delay).unwrap();
+        // writeln!(hstdout, "{}\t{}", x, y);
+        // writeln!(hstdout, "{:?}", display.ts().read_values().unwrap()).unwrap();
 
         t += 1;
     }

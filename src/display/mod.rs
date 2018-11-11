@@ -31,7 +31,9 @@ use stm32f429_hal::{
 };
 
 use super::spi::SpiDmaWrite;
-mod ili9486;
+pub mod xpt2046;
+use self::xpt2046::Ts;
+pub mod ili9486;
 use self::ili9486::{
     command::{self, Command},
     Tft, TftWriter
@@ -104,7 +106,6 @@ mod spi1 {
                 Target::Tft => 12,
                 Target::Ts => 2,
                 Target::Sd => 8,
-                _ => panic!("TODO: Not implemented"),
             }
         }
 
@@ -166,7 +167,7 @@ impl Display {
             vert_refresh_order: false,
             horiz_refresh_order: false,
         })?;
-        let r = this.tft().write_command(command::InterfacePixelFormat {
+        this.tft().write_command(command::InterfacePixelFormat {
             cpu_format: command::PixelFormat::Bpp16,
             rgb_format: command::PixelFormat::Bpp16,
         })?;
@@ -206,6 +207,19 @@ impl Display {
             self.clocks, &mut self.apb2
         );
         self.spi_state = spi1::State::Ready(target, spi);
+    }
+
+    pub fn ts(&mut self) -> Ts<DisplaySpi<[u8; 0]>, TsCs> {
+        self.setup_spi(spi1::Target::Ts);
+
+        Ts {
+            spi: DisplaySpi {
+                spi: self.spi_state.mut_spi(),
+                spi_dma_stream: &mut self.spi_dma_stream,
+                dma_xfer: None,
+            },
+            cs: &mut self.ts_cs,
+        }
     }
 
     pub fn tft<B: AsRef<[u8]>>(&mut self) -> Tft<DisplaySpi<B>, TftDc, TftCs> {

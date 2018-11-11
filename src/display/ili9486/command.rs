@@ -42,6 +42,7 @@ simple_command!(SleepOut, 0x11);
 simple_command!(InversionOn, 0x21);
 simple_command!(InversionOff, 0x28);
 simple_command!(DisplayOn, 0x29);
+simple_command!(DisplayOff, 0x28);
 
 pub struct MemoryAccessControl {
     pub row_addr_order: bool,
