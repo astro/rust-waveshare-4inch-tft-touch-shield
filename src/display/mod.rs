@@ -50,6 +50,12 @@ pub const WIDTH: usize = 320;
 pub const HEIGHT: usize = 480;
 
 
+pub fn rgb_to_16bpp(r: u8, g: u8, b: u8) -> [u8; 2] {
+    [(r & 0xF8) | (g >> 5),
+     ((g & 0x1C) << 3) | (b >> 3)]
+}
+
+
 /// TODO: use MODE0 after next embedded_hal release
 fn spi_mode0() -> SpiMode {
     let polarity = SpiPolarity::IdleLow;

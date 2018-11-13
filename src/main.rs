@@ -29,7 +29,7 @@ use embedded_hal::{
 
 mod spi;
 mod display;
-use display::{Display, WIDTH, HEIGHT, ili9486::command, console::Console};
+use display::{rgb_to_16bps, Display, WIDTH, HEIGHT, ili9486::command, console::Console};
 
 struct ScanLine([u8; 2 * WIDTH]);
 impl AsRef<[u8]> for ScanLine {
@@ -191,8 +191,7 @@ fn main() -> ! {
                     if is_input && x < 20 && y < 20 {
                         r = 255;
                     }
-                    buf[i] = (r & 0xF8) | (g >> 5);
-                    buf[i + 1] = ((g & 0x1C) << 3) | (b >> 3);
+                    buf[i..(i + 2)].copy_from_slice(&rgb_to_16bps(r, g, b));
                     i += 2;
                 }
                 led_blue.set_low();
