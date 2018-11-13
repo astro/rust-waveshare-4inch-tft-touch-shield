@@ -82,6 +82,8 @@ fn main() -> ! {
     let lcd_dc = gpiof.pf13.into_push_pull_output(&mut gpiof.moder, &mut gpiof.otyper);
     let lcd_cs = gpiod.pd14.into_push_pull_output(&mut gpiod.moder, &mut gpiod.otyper);
     let ts_cs = gpiof.pf14.into_push_pull_output(&mut gpiof.moder, &mut gpiof.otyper);
+    let ts_pen = gpioe.pe13.into_floating_input(&mut gpioe.moder, &mut gpioe.pupdr);
+    let ts_busy = gpioe.pe9.into_floating_input(&mut gpioe.moder, &mut gpioe.pupdr);
     let sd_cs = gpioe.pe11.into_push_pull_output(&mut gpioe.moder, &mut gpioe.otyper);
 
     let mosi = gpioa.pa7.into_af5(&mut gpioa.moder, &mut gpioa.afrl);
@@ -100,31 +102,45 @@ fn main() -> ! {
         sck, miso, mosi,
         dp.SPI1, dma_streams.s3, rcc.apb2, clocks,
         lcd_dc, lcd_cs,
-        ts_cs, sd_cs,
+        ts_pen, ts_busy, ts_cs,
+        sd_cs,
         &mut delay
     ).expect("display");
 
     let mut cons = Console::new();
     let mut t = 0;
     let mut ht = 0;
-    let mut hist = [[0u16; 4]; HEIGHT];
+    let mut hist = [[0u16; 3]; HEIGHT];
+    let mut px = 0xFFFusize;
+    let mut py = 0xFFFusize;
+    let mut x_min = px / 2;
+    let mut y_min = py / 2;
+    let mut x_max = px / 2;
+    let mut y_max = py / 2;
+    let mut pz = 0;
     loop {
         led_red.set_high();
-        for _ in 0..8 {
-            let vs = display.ts().read_values().unwrap();
+        let is_input = display.ts_input();
+        if is_input {
+            let (x, y, z) = display.ts().read_values().unwrap();
+            writeln!(&mut cons, "{:4}x{:4} @ {:5}", x, y, z);
             hist[ht % HEIGHT] = [
-                // vs[0] * (WIDTH as u16) / 4095,
-                // vs[1] * (WIDTH as u16) / 4095,
-                // vs[2] * (WIDTH as u16) / 4095,
-                // vs[3] * (WIDTH as u16) / 4095,
-                vs[0] >> 4,
-                vs[1] >> 4,
-                vs[2] >> 4,
-                vs[3] >> 4,
+                x, y, z
             ];
             ht += 1;
             if ht >= HEIGHT {
                 ht = 0;
+            }
+            if z > 1000 {
+                if (x as usize) < x_min { x_min = x as usize; }
+                if (x as usize) > x_max { x_max = x as usize; }
+                if (y as usize) < y_min { y_min = y as usize; }
+                if (y as usize) > y_max { y_max = y as usize; }
+                px = WIDTH * (x as usize - x_min) / (x_max - x_min);
+                py = HEIGHT * (y_max - y as usize) / (y_max - y_min);
+                // px = x as usize;
+                // py = y as usize;
+                pz = z;
             }
         }
         led_red.set_low();
@@ -171,9 +187,12 @@ fn main() -> ! {
                             b = COLORS[hi][2];
                         }
                     }
-                    
+
+                    if is_input && x < 20 && y < 20 {
+                        r = 255;
+                    }
                     buf[i] = (r & 0xF8) | (g >> 5);
-                    buf[i + 1] = ((g & 0x1C) << 3) | (b >> 5);
+                    buf[i + 1] = ((g & 0x1C) << 3) | (b >> 3);
                     i += 2;
                 }
                 led_blue.set_low();

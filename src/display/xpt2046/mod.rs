@@ -1,7 +1,7 @@
 //! https://ldm-systems.ru/f/doc/catalog/HY-TFT-2,8/XPT2046.pdf
 
 use embedded_hal::{
-    digital::OutputPin,
+    digital::{InputPin, OutputPin},
     blocking::spi::Transfer as SpiTransfer,
     blocking::delay::DelayUs,
 };
@@ -10,6 +10,8 @@ use super::super::spi::SpiDmaWrite;
 
 mod command;
 use self::command::Command;
+mod read_commands;
+use self::read_commands::{read_commands, XY_READS};
 
 use sh;
 use core::fmt::Write;
@@ -76,8 +78,6 @@ impl<'a, SPI: SpiDmaWrite, CS: OutputPin, Busy: InputPin> Ts<'a, SPI, CS, Busy> 
         let y = nearest_avg(&ys[1..]);
         let z1 = i.next().unwrap();
         let z2 = i.next().unwrap();
-        i.next();
-        drop(i);
         let z = z1 + 4095 - z2;
 
         Ok((x, y, z))

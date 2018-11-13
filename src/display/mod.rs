@@ -1,7 +1,10 @@
 use core::mem::replace;
 
 use embedded_hal::{
-    digital::OutputPin,
+    digital::{
+        InputPin,
+        OutputPin,
+    },
     spi::{
         Mode as SpiMode,
         Polarity as SpiPolarity,
@@ -25,8 +28,8 @@ use stm32f429_hal::{
     gpio::{
         gpiof::{PF13, PF14},
         gpiod::PD14,
-        gpioe::PE11,
-        Output, PushPull,
+        gpioe::{PE9, PE11, PE13},
+        Input, Output, Floating, PushPull,
     },
 };
 
@@ -118,6 +121,8 @@ mod spi1 {
 
 type TftDc = PF13<Output<PushPull>>;
 type TftCs = PD14<Output<PushPull>>;
+type TsPen = PE13<Input<Floating>>;
+type TsBusy = PE9<Input<Floating>>;
 type TsCs = PF14<Output<PushPull>>;
 type SdCs = PE11<Output<PushPull>>;
 
@@ -130,6 +135,10 @@ pub struct Display {
     tft_dc: TftDc,
     /// Chip Select
     tft_cs: TftCs,
+    /// Touch screen PENIRQ
+    ts_pen: TsPen,
+    /// Touch screen Busy
+    ts_busy: TsBusy,
     /// Chip Select
     ts_cs: TsCs,
     /// Chip Select
@@ -141,7 +150,8 @@ impl Display {
         sck: spi1::Sck, miso: spi1::Miso, mosi: spi1::Mosi,
         spi: SPI1, spi_dma_stream: spi1::DmaStream, apb2: APB2, clocks: Clocks,
         tft_dc: TftDc, tft_cs: TftCs,
-        ts_cs: TsCs, sd_cs: SdCs,
+        ts_pen: TsPen, ts_busy: TsBusy, ts_cs: TsCs,
+        sd_cs: SdCs,
         delay: &mut D,
     ) -> Result<Self, Error> {
         let mut this = Display {
@@ -150,6 +160,8 @@ impl Display {
             apb2, clocks,
             tft_dc,
             tft_cs,
+            ts_pen,
+            ts_busy,
             ts_cs,
             sd_cs,
         };
@@ -210,7 +222,7 @@ impl Display {
         self.spi_state = spi1::State::Ready(target, spi);
     }
 
-    pub fn ts(&mut self) -> Ts<DisplaySpi<[u8; 0]>, TsCs> {
+    pub fn ts(&mut self) -> Ts<DisplaySpi<[u8; 0]>, TsCs, TsBusy> {
         self.setup_spi(spi1::Target::Ts);
 
         Ts {
@@ -220,6 +232,7 @@ impl Display {
                 dma_xfer: None,
             },
             cs: &mut self.ts_cs,
+            busy: &mut self.ts_busy,
         }
     }
 
@@ -235,6 +248,10 @@ impl Display {
             cs: &mut self.tft_cs,
             dc: &mut self.tft_dc,
         }
+    }
+
+    pub fn ts_input(&mut self) -> bool {
+        self.ts_pen.is_low()
     }
 
     pub fn write_pixels<B: AsRef<[u8]>>(&mut self) -> Result<TftWriter<DisplaySpi<B>, TftCs>, Error> {
