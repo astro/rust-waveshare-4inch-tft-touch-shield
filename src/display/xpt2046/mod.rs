@@ -27,29 +27,16 @@ pub mod channels {
 }
 
 
-pub struct Ts<'a, SPI: SpiDmaWrite, CS: OutputPin> {
+pub struct Ts<'a, SPI: SpiDmaWrite, CS: OutputPin, Busy: InputPin> {
     pub spi: SPI,
     pub cs: &'a mut CS,
+    pub busy: &'a mut Busy,
 }
 
-impl<'a, SPI: SpiDmaWrite, CS: OutputPin> Ts<'a, SPI, CS> {
-    /// Synchronous interface for debugging purposes
-    pub fn read<D: DelayUs<u16>>(&mut self, cmd: u8, delay: &mut D) -> Result<u16, SPI::Error> {
-        self.cs.set_low();
-        self.spi.write_sync(&[cmd])?;
-        //delay.delay_us(200);
-        let mut buf = [0; 2];
-        self.spi.transfer(&mut buf)?;
-        self.cs.set_high();
-
-        let r = read_12bits(&buf);
-        // let r = ((buf[0] as u16) << 8) | (buf[1] as u16);
-        Ok(r)
-    }
-
+impl<'a, SPI: SpiDmaWrite, CS: OutputPin, Busy: InputPin> Ts<'a, SPI, CS, Busy> {
     /// Synchronous interface that interleaves commands/data for
     /// higher throughput
-    pub fn read_many<I>(mut self, mut iter: I) -> Result<ReadIter<'a, SPI, CS, I>, SPI::Error>
+    pub fn read_many<I>(mut self, mut iter: I) -> Result<ReadIter<'a, SPI, CS, Busy, I>, SPI::Error>
     where
         I: Iterator<Item=Command>
     {
@@ -58,47 +45,85 @@ impl<'a, SPI: SpiDmaWrite, CS: OutputPin> Ts<'a, SPI, CS> {
         let next_cmd = iter.next()
             .map(|command| command.into())
             .unwrap_or(0);
-        self.spi.write_sync(&[next_cmd])?;
-
-        Ok(ReadIter {
-            iter,
-            spi: self.spi,
-            cs: self.cs,
-            ended: false,
-        })
-    }
-
-    pub fn read_values(self) -> Result<[u16; 4], SPI::Error> {
-        fn cmd(channel: u8) -> Command {
-            Command {
-                channel,
-                mode: false,
-                ser_dfr: false,
-                pd1: true,
-                pd0: true,
+        match self.spi.write_sync(&[next_cmd]) {
+            Ok(_) =>
+                Ok(ReadIter {
+                    iter,
+                    spi: self.spi,
+                    cs: self.cs,
+                    busy: self.busy,
+                    ended: false,
+                    read_mode: false,
+                }),
+            Err(e) => {
+                self.cs.set_high();
+                Err(e)
             }
         }
+    }
 
-        let cmds = [
-            cmd(channels::X),
-            cmd(channels::Y),
-            cmd(channels::Z1),
-            cmd(channels::Z2),
-        ];
-        let mut i = self.read_many(cmds.into_iter().cloned())?;
-        Ok([i.next().unwrap(), i.next().unwrap(), i.next().unwrap(), i.next().unwrap()])
+    pub fn read_values(self) -> Result<(u16, u16, u16), SPI::Error> {
+        let mut i = self.read_many(read_commands())?;
+
+        let mut xs: [u16; XY_READS] = unsafe { core::mem::uninitialized() };
+        let mut ys: [u16; XY_READS] = unsafe { core::mem::uninitialized() };
+
+        for (x, y) in xs.iter_mut().zip(ys.iter_mut()) {
+            *x = i.next().unwrap();
+            *y = i.next().unwrap();
+        }
+        let x = nearest_avg(&xs[1..]);
+        let y = nearest_avg(&ys[1..]);
+        let z1 = i.next().unwrap();
+        let z2 = i.next().unwrap();
+        i.next();
+        drop(i);
+        let z = z1 + 4095 - z2;
+
+        Ok((x, y, z))
     }
 }
 
-pub struct ReadIter<'a, SPI: SpiDmaWrite, CS: OutputPin, I: Iterator<Item=Command>> {
+fn nearest_avg(xs: &[u16]) -> u16 {
+    if xs.len() == 0 {
+        return xs[0];
+    }
+    fn diff(x1: u16, x2: u16) -> u16 {
+        if x1 < x2 {
+            x2 - x1
+        } else {
+            x1 - x2
+        }
+    }
+    
+    let mut x1 = xs[0];
+    let mut x2 = xs[1];
+    let mut d = diff(x1, x2);
+
+    for i in 1..xs.len() {
+        for j in (i + 1)..xs.len() {
+            let dnew = diff(xs[i], xs[j]);
+            if dnew < d {
+                x1 = xs[i];
+                x2 = xs[j];
+                d = dnew;
+            }
+        }
+    }
+
+    (x1 + x2) / 2
+}
+
+pub struct ReadIter<'a, SPI: SpiDmaWrite, CS: OutputPin, Busy: InputPin, I: Iterator<Item=Command>> {
     iter: I,
     spi: SPI,
     cs: &'a mut CS,
+    busy: &'a mut Busy,
     ended: bool,
-    // TODO: read_8bit: bool,
+    read_mode: bool,
 }
 
-impl<'a, SPI: SpiDmaWrite, CS: OutputPin, I: Iterator<Item=Command>> Iterator for ReadIter<'a, SPI, CS, I> {
+impl<'a, SPI: SpiDmaWrite, CS: OutputPin, Busy: InputPin, I: Iterator<Item=Command>> Iterator for ReadIter<'a, SPI, CS, Busy, I> {
     type Item = u16;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -106,17 +131,32 @@ impl<'a, SPI: SpiDmaWrite, CS: OutputPin, I: Iterator<Item=Command>> Iterator fo
             return None;
         }
 
+        let mut next_mode = false;
         let next_cmd = self.iter.next()
-            .map(|command| command.into())
+            .map(|command| {
+                next_mode = command.mode;
+                command.into()
+            })
             .unwrap_or_else(|| {
                 self.ended = true;
                 0
             });
-
         let mut buf = [0, next_cmd];
-        match self.spi.transfer(&mut buf) {
+        let buf_ref = if !self.read_mode {
+            &mut buf
+        } else {
+            &mut buf[1..]
+        };
+
+        // while self.busy.is_high() {}
+        match self.spi.transfer(buf_ref) {
             Ok(_) => {
-                let r = read_12bits(&buf);
+                let r = if !self.read_mode {
+                    read_12bits(buf_ref)
+                } else {
+                    buf_ref[0] as u16
+                };
+                self.read_mode = next_mode;
                 Some(r)
             },
             Err(_) => None,
@@ -124,12 +164,12 @@ impl<'a, SPI: SpiDmaWrite, CS: OutputPin, I: Iterator<Item=Command>> Iterator fo
     }
 }
 
-impl<'a, SPI: SpiDmaWrite, CS: OutputPin, I: Iterator<Item=Command>> Drop for ReadIter<'a, SPI, CS, I> {
+impl<'a, SPI: SpiDmaWrite, CS: OutputPin, Busy: InputPin, I: Iterator<Item=Command>> Drop for ReadIter<'a, SPI, CS, Busy, I> {
     fn drop(&mut self) {
         self.cs.set_high();
     }
 }
 
-fn read_12bits(buf: &[u8; 2]) -> u16 {
-    ((buf[0] as u16) << 5) | ((buf[1] as u16) >> 3)
+fn read_12bits(buf: &[u8]) -> u16 {
+    ((buf[1] as u16) << 5) | ((buf[0] as u16) >> 3)
 }

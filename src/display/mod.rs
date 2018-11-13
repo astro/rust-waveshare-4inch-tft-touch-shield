@@ -38,6 +38,7 @@ use self::ili9486::{
     command::{self, Command},
     Tft, TftWriter
 };
+pub mod console;
 
 use sh;
 use core::fmt::Write;
@@ -162,7 +163,7 @@ impl Display {
         this.tft().write_command(command::MemoryAccessControl {
             rgb_to_bgr: true,
             row_addr_order: false,
-            col_addr_order: false,
+            col_addr_order: true,
             row_col_exchange: false,
             vert_refresh_order: false,
             horiz_refresh_order: false,

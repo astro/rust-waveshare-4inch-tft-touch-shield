@@ -10,6 +10,7 @@ extern crate cortex_m_semihosting as sh;
 extern crate embedded_hal;
 #[macro_use]
 extern crate nb;
+extern crate vga_framebuffer;
 
 use core::fmt::Write;
 use stm32f429_hal::{
@@ -28,7 +29,7 @@ use embedded_hal::{
 
 mod spi;
 mod display;
-use display::{Display, WIDTH, HEIGHT, ili9486::command};
+use display::{Display, WIDTH, HEIGHT, ili9486::command, console::Console};
 
 struct ScanLine([u8; 2 * WIDTH]);
 impl AsRef<[u8]> for ScanLine {
@@ -38,10 +39,10 @@ impl AsRef<[u8]> for ScanLine {
 }
 
 const COLORS: &'static [[u8; 3]] = &[
+    [0, 255, 0],
+    [0, 0, 255],
     [255, 0, 0],
     [255, 255, 0],
-    [0, 255, 0],
-    [0, 255, 255],
 ];
 
 #[entry]
@@ -103,6 +104,7 @@ fn main() -> ! {
         &mut delay
     ).expect("display");
 
+    let mut cons = Console::new();
     let mut t = 0;
     let mut ht = 0;
     let mut hist = [[0u16; 4]; HEIGHT];
@@ -146,8 +148,19 @@ fn main() -> ! {
                     let mut r = 0;
                     let mut g = 0;
                     let mut b = 0;
-                    if grid || x % (WIDTH / 8) == 0 {
+                    if x < 256 && (grid || x % (WIDTH / 8) == 0) {
                         b = 128;
+                    }
+                    if pz >= 400 &&
+                        ((x >= px - 2 && x < px + 2) ||
+                         (y >= py - 2 && y < py + 2)) {
+                            r = 255;
+                            g = 255;
+                            b = 255;
+                        }
+
+                    if cons.get_pixel(x, y) {
+                        g = 255;
                     }
 
                     for (hi, hx) in h.iter().enumerate() {
