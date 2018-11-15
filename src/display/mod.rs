@@ -1,3 +1,5 @@
+//! https://www.waveshare.com/w/upload/7/78/ILI9486_Datasheet.pdf
+
 use core::mem::replace;
 
 use embedded_hal::{
@@ -194,6 +196,7 @@ impl Display {
         Ok(this)
     }
 
+    /// Select no SPI slave
     fn set_all_cs_high(&mut self) {
         self.tft_cs.set_high();
         self.ts_cs.set_high();
@@ -228,6 +231,7 @@ impl Display {
         self.spi_state = spi1::State::Ready(target, spi);
     }
 
+    /// Obtain touch screen interface
     pub fn ts(&mut self) -> Ts<DisplaySpi<[u8; 0]>, TsCs, TsBusy> {
         self.setup_spi(spi1::Target::Ts);
 
@@ -242,6 +246,7 @@ impl Display {
         }
     }
 
+    /// Obtain tft interface
     pub fn tft<B: AsRef<[u8]>>(&mut self) -> Tft<DisplaySpi<B>, TftDc, TftCs> {
         self.setup_spi(spi1::Target::Tft);
 
@@ -256,12 +261,13 @@ impl Display {
         }
     }
 
+    /// Touch screen input available?
     pub fn ts_input(&mut self) -> bool {
         self.ts_pen.is_low()
     }
 
+    /// Send write command to tft and return a DMA writer
     pub fn write_pixels<B: AsRef<[u8]>>(&mut self) -> Result<TftWriter<DisplaySpi<B>, TftCs>, Error> {
-        // TODO: send empty memorywrite
         self.tft::<B>().writer(command::MemoryWrite::number())
     }
 
@@ -313,8 +319,8 @@ impl<'a, Buf: AsRef<[u8]>> SpiDmaWrite for DisplaySpi<'a, Buf> {
             Some(xfer) => {
                 let stream = xfer.wait()
                     .unwrap_or_else(|stream| {
-                        let mut hstdout = sh::hio::hstdout().unwrap();
-                        writeln!(hstdout, "dma err").unwrap();
+                        // let mut hstdout = sh::hio::hstdout().unwrap();
+                        // writeln!(hstdout, "dma err").unwrap();
                         stream
                     });
                 *self.spi_dma_stream = Some(stream);
