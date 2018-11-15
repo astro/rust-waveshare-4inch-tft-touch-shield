@@ -44,6 +44,8 @@ use self::ili9486::{
     Tft, TftWriter
 };
 pub mod console;
+mod scanline;
+pub use self::scanline::ScanLine;
 
 use sh;
 use core::fmt::Write;
