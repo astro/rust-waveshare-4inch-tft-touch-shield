@@ -28,6 +28,7 @@ pub mod channels {
     pub const TEMP1: u8 = 0b111;
 }
 
+const X_PLATE_OHMS: u32 = 400;
 
 pub struct Ts<'a, SPI: SpiDmaWrite, CS: OutputPin, Busy: InputPin> {
     pub spi: SPI,
@@ -78,9 +79,13 @@ impl<'a, SPI: SpiDmaWrite, CS: OutputPin, Busy: InputPin> Ts<'a, SPI, CS, Busy> 
         let y = nearest_avg(&ys[1..]);
         let z1 = i.next().unwrap();
         let z2 = i.next().unwrap();
-        let z = z1 + 4095 - z2;
+        let z = if x > 0 && z1 > 0 {
+            (((((z2 as u32) - (z1 as u32)) * (x as u32) * X_PLATE_OHMS) / (z1 as u32)) + 2047) >> 12
+        } else {
+            0
+        };
 
-        Ok((x, y, z))
+        Ok((x, y, 1000u32.saturating_sub(z) as u16))
     }
 }
 

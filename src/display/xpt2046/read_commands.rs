@@ -38,7 +38,7 @@ impl Iterator for ReadCommands {
         Some(Command {
             channel,
             mode: false,
-            ser_dfr: false,
+            ser_dfr: self.n > 2 * XY_READS,
             pd1: self.n <= 8,
             pd0: self.n <= 8,
         })
