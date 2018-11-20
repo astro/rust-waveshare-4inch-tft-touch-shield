@@ -23,31 +23,16 @@ use stm32f429_hal::{
 };
 use embedded_hal::{
     digital::OutputPin,
-    blocking::delay::{DelayUs, DelayMs},
+    blocking::delay::DelayUs,
 };
 
 mod spi;
 mod display;
-use display::{rgb_to_16bps, Display, WIDTH, HEIGHT, ili9486::command, console::Console};
+use display::{Display, WIDTH, HEIGHT, console::Console, ScanLine};
 
-struct ScanLine([u8; 2 * WIDTH]);
-impl AsRef<[u8]> for ScanLine {
-    fn as_ref(&self) -> &[u8] {
-        &self.0[..]
-    }
-}
-
-const COLORS: &'static [[u8; 3]] = &[
-    [0, 255, 0],
-    [0, 0, 255],
-    [255, 0, 0],
-    [255, 255, 0],
-];
 
 #[entry]
 fn main() -> ! {
-    // let mut hstdout = sh::hio::hstdout().unwrap();
-
     let mut cp = cortex_m::Peripherals::take().unwrap();
     let dp = stm32f429::Peripherals::take().unwrap();
 
@@ -62,7 +47,6 @@ fn main() -> ! {
         .pclk1(36.mhz())
         .pclk2(72.mhz())
         .freeze(&mut flash.acr);
-    // writeln!(hstdout, "Clocks: {:?}", clocks).unwrap();
     
     let mut delay = Delay::new(cp.SYST, clocks);
 
@@ -105,107 +89,86 @@ fn main() -> ! {
         sd_cs,
         &mut delay
     ).expect("display");
-
     let mut cons = Console::new();
+
     let mut t = 0;
-    let mut ht = 0;
-    let mut hist = [[0u16; 3]; HEIGHT];
-    let mut px = 0xFFFusize;
-    let mut py = 0xFFFusize;
-    let mut x_min = px / 2;
-    let mut y_min = py / 2;
-    let mut x_max = px / 2;
-    let mut y_max = py / 2;
-    let mut pz = 0;
+    let mut touch = None;
+    let mut prev_touch = touch.clone();
+    let x_min = 460;
+    let y_min = 800;
+    let x_max = 4000;
+    let y_max = 4000;
+    let mut z_repeat = 0;
     loop {
         led_red.set_high();
         let is_input = display.ts_input();
         if is_input {
             let (x, y, z) = display.ts().read_values().unwrap();
-            writeln!(&mut cons, "{:4}x{:4} @ {:5}", x, y, z);
-            hist[ht % HEIGHT] = [
-                x, y, z
-            ];
-            ht += 1;
-            if ht >= HEIGHT {
-                ht = 0;
+            if z > 0 {
+                z_repeat += 1;
+            } else {
+                z_repeat = 0;
             }
-            if z > 1000 {
-                if (x as usize) < x_min { x_min = x as usize; }
-                if (x as usize) > x_max { x_max = x as usize; }
-                if (y as usize) < y_min { y_min = y as usize; }
-                if (y as usize) > y_max { y_max = y as usize; }
-                px = WIDTH * (x as usize - x_min) / (x_max - x_min);
-                py = HEIGHT * (y_max - y as usize) / (y_max - y_min);
-                // px = x as usize;
-                // py = y as usize;
-                pz = z;
+            if z_repeat > 5 {
+                writeln!(&mut cons, "x: {} y: {}", x, y).unwrap();
+                let x = (x as usize).max(x_min).min(x_max);
+                let y = (y as usize).max(y_min).min(y_max);
+                touch = Some((
+                    WIDTH * (x - x_min) / (x_max - x_min),
+                    HEIGHT * ((y_max - y_min) - (y - y_min)) / (y_max - y_min),
+                    z
+                ));
+            } else {
+                touch = None;
             }
+        } else {
+            writeln!(&mut cons, "no input").unwrap();
         }
         led_red.set_low();
 
-        {
-            led_green.set_high();
-            let mut w = display.write_pixels::<ScanLine>()
+        if touch != prev_touch || t < 2 {
+            prev_touch = touch.clone();
+            writeln!(&mut cons, "touch: {:?}", touch).unwrap();
+
+            led_red.set_high();
+            // display.set_pixel_area(50, 100, 50, 100).unwrap();
+            let mut w = display.write_pixels()
                 .expect("write_pixels");
-            led_green.set_low();
+            led_red.set_low();
 
             for y in 0..HEIGHT {
                 led_blue.set_high();
-                let mut buf: [u8; 2 * WIDTH] = unsafe { core::mem::uninitialized() };
-                let mut hty = ht as isize - 1 - y as isize;
-                if hty < 0 { hty += HEIGHT as isize }
-                let h = &hist[hty as usize];
-                let grid = y % (HEIGHT / 8) == 0;
-
-                let mut i = 0;
-                for x in 0..WIDTH {
-                    let mut r = 0;
+                let scanline = ScanLine::new(|x| {
+                    let tint = 255u8.saturating_sub((y >> 1).min(255) as u8);
+                    let mut r = tint >> 2;
                     let mut g = 0;
-                    let mut b = 0;
-                    if x < 256 && (grid || x % (WIDTH / 8) == 0) {
-                        b = 128;
+                    let mut b = tint >> 1;
+                    match touch {
+                        Some((px, py, _))
+                            if (x == px) || (y == py) => {
+                                r = 0;
+                                g = 255;
+                                b = 0;
+                            }
+                        _ => {}
                     }
-                    if pz >= 400 &&
-                        ((x >= px - 2 && x < px + 2) ||
-                         (y >= py - 2 && y < py + 2)) {
-                            r = 255;
-                            g = 255;
-                            b = 255;
-                        }
 
                     if cons.get_pixel(x, y) {
-                        g = 255;
-                    }
-
-                    for (hi, hx) in h.iter().enumerate() {
-                        let hx = *hx as usize;
-                        if x == hx {
-                            r = COLORS[hi][0];
-                            g = COLORS[hi][1];
-                            b = COLORS[hi][2];
-                        }
-                    }
-
-                    if is_input && x < 20 && y < 20 {
                         r = 255;
+                        g = 255;
+                        b = 255;
                     }
-                    buf[i..(i + 2)].copy_from_slice(&rgb_to_16bps(r, g, b));
-                    i += 2;
-                }
+
+                    (r, g, b)
+                });
                 led_blue.set_low();
 
                 led_green.set_high();
-                w.write(ScanLine(buf))
+                w.write(scanline)
                     .expect("write");
                 led_green.set_low();
             }
         }
-
-        // let x = display.ts().read(0xD3, &mut delay).unwrap();
-        // let y = display.ts().read(0x93, &mut delay).unwrap();
-        // writeln!(hstdout, "{}\t{}", x, y);
-        // writeln!(hstdout, "{:?}", display.ts().read_values().unwrap()).unwrap();
 
         t += 1;
     }
