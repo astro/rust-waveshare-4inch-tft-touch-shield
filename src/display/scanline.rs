@@ -1,11 +1,12 @@
 use super::{WIDTH, rgb_to_16bpp};
-use super::ili9486::command::PixelFormat;
 
+/// A 320px scan line for 16-bit data
 pub struct ScanLine {
     buf: [u8; 2 * WIDTH],
 }
 
 impl ScanLine {
+    /// Initialize from user-defined callback
     #[inline(always)]
     pub fn new<F: Fn(usize) -> (u8, u8, u8)>(f: F) -> Self {
         let mut this = ScanLine {

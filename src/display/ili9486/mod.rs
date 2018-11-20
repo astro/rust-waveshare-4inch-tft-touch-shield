@@ -1,16 +1,11 @@
 //! https://www.waveshare.com/w/upload/7/78/ILI9486_Datasheet.pdf
 
-use embedded_hal::{
-    digital::OutputPin,
-    blocking::spi::Transfer as SpiTransfer,
-};
+use embedded_hal::digital::OutputPin;
 
 pub mod command;
 use self::command::*;
 use super::super::spi::SpiDmaWrite;
 
-use sh;
-use core::fmt::Write;
 
 pub struct Tft<'a, SPI: SpiDmaWrite, DC: OutputPin, CS: OutputPin> {
     pub spi: SPI,
@@ -37,7 +32,7 @@ impl<'a, SPI: SpiDmaWrite, DC: OutputPin, CS: OutputPin> Tft<'a, SPI, DC, CS> {
 impl<'a, B: AsRef<[u8]>, SPI: SpiDmaWrite<DmaBuffer=B>, DC: OutputPin, CS: OutputPin> Tft<'a, SPI, DC, CS> {
     pub fn write_command<C: Command<Buffer=B>>(self, c: C) -> Result<(), SPI::Error> {
         let mut w = self.writer(C::number())?;
-        let mut buf = c.encode();
+        let buf = c.encode();
         w.write(buf)
     }
 }

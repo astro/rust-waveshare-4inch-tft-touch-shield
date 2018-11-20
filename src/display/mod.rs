@@ -11,7 +11,6 @@ use embedded_hal::{
         Mode as SpiMode,
         Polarity as SpiPolarity,
         Phase as SpiPhase,
-        FullDuplex as SpiFullDuplex,
     },
     blocking::{
         delay::DelayMs,
@@ -47,9 +46,6 @@ pub mod console;
 mod scanline;
 pub use self::scanline::ScanLine;
 
-use sh;
-use core::fmt::Write;
-
 pub const WIDTH: usize = 320;
 pub const HEIGHT: usize = 480;
 
@@ -60,6 +56,7 @@ pub fn rgb_to_16bpp(r: u8, g: u8, b: u8) -> [u8; 2] {
      ((g & 0x1C) << 3) | (b >> 3)]
 }
 
+#[allow(unused)]
 #[inline(always)]
 pub fn rgb_to_18bpp(r: u8, g: u8, b: u8) -> [u8; 3] {
     [r, g, b]
@@ -117,6 +114,7 @@ mod spi1 {
         /// Touch screen
         Ts,
         /// SD card slot
+        #[allow(unused)]
         Sd,
     }
 
@@ -279,13 +277,6 @@ impl Display {
         self.tft::<B>().writer(command::MemoryWrite::number())
     }
 
-    pub fn set_inversion(&mut self, inverted: bool) -> Result<(), Error> {
-        if inverted {
-            self.tft().write_command(command::InversionOn)
-        } else {
-            self.tft().write_command(command::InversionOff)
-        }
-    }
 }
 
 pub struct DisplaySpi<'a, B: AsRef<[u8]>> {

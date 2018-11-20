@@ -7,6 +7,7 @@ pub trait Command {
 
 macro_rules! simple_command {
     ($name: ident, $number: tt) => (
+        #[allow(unused)]
         pub struct $name;
 
         impl Command for $name {

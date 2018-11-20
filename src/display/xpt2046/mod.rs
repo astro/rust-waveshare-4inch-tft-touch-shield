@@ -1,10 +1,6 @@
 //! https://ldm-systems.ru/f/doc/catalog/HY-TFT-2,8/XPT2046.pdf
 
-use embedded_hal::{
-    digital::{InputPin, OutputPin},
-    blocking::spi::Transfer as SpiTransfer,
-    blocking::delay::DelayUs,
-};
+use embedded_hal::digital::{InputPin, OutputPin};
 
 use super::super::spi::SpiDmaWrite;
 
@@ -13,10 +9,8 @@ use self::command::Command;
 mod read_commands;
 use self::read_commands::{read_commands, XY_READS};
 
-use sh;
-use core::fmt::Write;
 
-
+#[allow(unused)]
 pub mod channels {
     pub const TEMP0: u8 = 0b000;
     pub const Y: u8 = 0b001;
