@@ -59,6 +59,10 @@ pub fn rgb_to_16bpp(r: u8, g: u8, b: u8) -> [u8; 2] {
      ((g & 0x1C) << 3) | (b >> 3)]
 }
 
+pub fn rgb_to_18bpp(r: u8, g: u8, b: u8) -> [u8; 3] {
+    [r, g, b]
+}
+
 
 /// TODO: use MODE0 after next embedded_hal release
 fn spi_mode0() -> SpiMode {
@@ -263,7 +267,7 @@ impl Display {
         }
     }
 
-    /// Touch screen input available?
+    /// Touch screen input available? Seems to always return true.
     pub fn ts_input(&mut self) -> bool {
         self.ts_pen.is_low()
     }
