@@ -56,7 +56,9 @@ impl<'a, SPI: SpiDmaWrite, CS: OutputPin> TftWriter<'a, SPI, CS> {
 
 impl<'a, SPI: SpiDmaWrite, CS: OutputPin> Drop for TftWriter<'a, SPI, CS> {
     fn drop(&mut self) {
-        self.spi.flush();
+        self.spi.flush()
+            .unwrap_or_else(|_| ());
+        cortex_m::asm::delay(64);
         self.cs.set_high();
     }
 }
