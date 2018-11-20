@@ -147,7 +147,7 @@ impl<'a, SPI: SpiDmaWrite, CS: OutputPin, Busy: InputPin, I: Iterator<Item=Comma
             &mut buf[1..]
         };
 
-        // while self.busy.is_high() {}
+        while self.busy.is_high() {}
         match self.spi.transfer(buf_ref) {
             Ok(_) => {
                 let r = if !self.read_mode {
