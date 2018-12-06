@@ -1,4 +1,4 @@
-![Preview](https://astro.github.io/rust-waveshare-4inch-tft-touch-shield/tft.gif)
+[![Preview](https://astro.github.io/rust-waveshare-4inch-tft-touch-shield/tft.jpg)](https://astro.github.io/rust-waveshare-4inch-tft-touch-shield/tft.gif)
 
 | **TFT Shield Pin** | **Nucleo Pin** |
 |:-------------|----------------:|
